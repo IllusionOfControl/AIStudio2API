@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// findCamoufoxExecutable 定位源码环境或 Release 自带的 Camoufox
 func findCamoufoxExecutable() (string, error) {
 	if configured := strings.TrimSpace(os.Getenv("CAMOUFOX_PATH")); configured != "" {
 		return validateCamoufoxExecutable(configured)
@@ -34,7 +33,7 @@ func findCamoufoxExecutable() (string, error) {
 	}
 	path, err := installCamoufox(name)
 	if err != nil {
-		return "", fmt.Errorf("自动准备 Camoufox: %w", err)
+		return "", fmt.Errorf("auto-prepare Camoufox: %w", err)
 	}
 	return validateCamoufoxExecutable(path)
 }
@@ -48,21 +47,21 @@ func camoufoxExecutablePath() (string, error) {
 	case "darwin":
 		return filepath.Join("Camoufox.app", "Contents", "MacOS", "camoufox"), nil
 	default:
-		return "", fmt.Errorf("Camoufox 不支持 %s", runtime.GOOS)
+		return "", fmt.Errorf("Camoufox does not support %s", runtime.GOOS)
 	}
 }
 
 func validateCamoufoxExecutable(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return "", fmt.Errorf("解析 Camoufox 路径: %w", err)
+		return "", fmt.Errorf("resolve Camoufox path: %w", err)
 	}
 	info, err := os.Stat(absolute)
 	if err != nil {
 		return "", err
 	}
 	if info.IsDir() {
-		return "", fmt.Errorf("Camoufox 路径是目录")
+		return "", fmt.Errorf("Camoufox path is a directory")
 	}
 	return absolute, nil
 }

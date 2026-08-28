@@ -22,23 +22,20 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/webui"
 )
 
-// commandOptions 保存只影响本次启动的命令行选项
 type commandOptions struct {
 	openUI bool
 }
 
-// main 执行单二进制命令入口
 func main() {
 	if err := runCommand(os.Args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
-		slog.Error("AIStudio2API 启动失败", "error", err)
+		slog.Error("AIStudio2API failed to start", "error", err)
 		os.Exit(1)
 	}
 }
 
-// runCommand 分派首次配置与默认服务
 func runCommand(args []string) error {
 	cfg, err := config.Load(".env")
 	if err != nil {
@@ -61,23 +58,22 @@ func runCommand(args []string) error {
 	return errors.Join(runServer(ctx, cfg, options, service, admin), closeRuntime())
 }
 
-// parseFlags 使用命令行参数覆盖本次启动配置
 func parseFlags(args []string, cfg *config.Config) (commandOptions, error) {
 	flags := flag.NewFlagSet("aistudio2api", flag.ContinueOnError)
 	flags.Usage = func() {
-		fmt.Fprintln(flags.Output(), "首次配置: aistudio2api setup")
-		fmt.Fprintln(flags.Output(), "日常启动: aistudio2api [参数]")
+		fmt.Fprintln(flags.Output(), "Initial setup: aistudio2api setup")
+		fmt.Fprintln(flags.Output(), "Start server: aistudio2api [flags]")
 		flags.PrintDefaults()
 	}
-	authStates := flags.String("auth", cfg.AuthStates, "账户状态文件、目录或逗号分隔的多个路径")
-	listenAddr := flags.String("listen", cfg.ListenAddr, "服务监听地址")
-	proxy := flags.String("proxy", cfg.Proxy, "本次启动使用的 HTTP、HTTPS 或 SOCKS5 代理")
-	openUI := flags.Bool("open-ui", len(args) == 0, "启动后打开管理界面")
+	authStates := flags.String("auth", cfg.AuthStates, "Account auth state files, directories, or comma-separated paths")
+	listenAddr := flags.String("listen", cfg.ListenAddr, "Server listen address")
+	proxy := flags.String("proxy", cfg.Proxy, "HTTP, HTTPS, or SOCKS5 proxy to use")
+	openUI := flags.Bool("open-ui", len(args) == 0, "Open admin UI in browser after startup")
 	if err := flags.Parse(args); err != nil {
 		return commandOptions{}, err
 	}
 	if flags.NArg() != 0 {
-		return commandOptions{}, fmt.Errorf("未知参数 %q", flags.Arg(0))
+		return commandOptions{}, fmt.Errorf("unknown argument %q", flags.Arg(0))
 	}
 
 	cfg.AuthStates = strings.TrimSpace(*authStates)
@@ -89,12 +85,11 @@ func parseFlags(args []string, cfg *config.Config) (commandOptions, error) {
 	return commandOptions{openUI: *openUI}, nil
 }
 
-// runServer 管理 HTTP 监听与优雅退出
 func runServer(ctx context.Context, cfg config.Config, options commandOptions, service aistudio.Service, admin *runtimeAdmin) error {
-	admin.requests.log("service", "INFO", fmt.Sprintf("应用启动 | 4/4 | 监听 HTTP | 地址=%s", cfg.ListenAddr))
+	admin.requests.log("service", "INFO", fmt.Sprintf("App startup | 4/4 | Listening HTTP | addr=%s", cfg.ListenAddr))
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
-		return fmt.Errorf("监听 %s: %w", cfg.ListenAddr, err)
+		return fmt.Errorf("listen on %s: %w", cfg.ListenAddr, err)
 	}
 	apiHandler := api.NewHandler(service, api.Config{APIKey: cfg.ProxyAPIKey, Admin: admin})
 	server := &http.Server{
@@ -108,14 +103,14 @@ func runServer(ctx context.Context, cfg config.Config, options commandOptions, s
 	}()
 
 	address := browserAddress(listener.Addr().String())
-	admin.requests.log("service", "INFO", "管理服务就绪 | 地址=http://"+address)
+	admin.requests.log("service", "INFO", "Admin service ready | addr=http://"+address)
 	if options.openUI {
 		if err := openBrowser("http://" + address); err != nil {
 			_ = server.Close()
 			<-serveError
 			return err
 		}
-		admin.requests.log("service", "INFO", "管理页面已打开 | 地址=http://"+address)
+		admin.requests.log("service", "INFO", "Admin UI opened | addr=http://"+address)
 	}
 
 	select {
@@ -128,7 +123,7 @@ func runServer(ctx context.Context, cfg config.Config, options commandOptions, s
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("关闭 HTTP 服务: %w", err)
+			return fmt.Errorf("shutdown HTTP server: %w", err)
 		}
 		if err := <-serveError; err != nil && !errors.Is(err, http.ErrServerClosed) {
 			return err
@@ -137,7 +132,6 @@ func runServer(ctx context.Context, cfg config.Config, options commandOptions, s
 	}
 }
 
-// rootHandler 将公开 API 与内嵌管理端挂载到同一服务
 func rootHandler(apiHandler http.Handler) http.Handler {
 	root := http.NewServeMux()
 	root.Handle("/health", apiHandler)
@@ -148,7 +142,6 @@ func rootHandler(apiHandler http.Handler) http.Handler {
 	return root
 }
 
-// browserAddress 将通配监听地址转换为本机可访问地址
 func browserAddress(address string) string {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
@@ -160,7 +153,6 @@ func browserAddress(address string) string {
 	return net.JoinHostPort(host, port)
 }
 
-// openBrowser 使用当前平台的系统命令打开管理界面
 func openBrowser(url string) error {
 	var command *exec.Cmd
 	switch runtime.GOOS {
@@ -172,10 +164,10 @@ func openBrowser(url string) error {
 		command = exec.Command("xdg-open", url)
 	}
 	if err := command.Start(); err != nil {
-		return fmt.Errorf("打开管理界面: %w", err)
+		return fmt.Errorf("open admin UI: %w", err)
 	}
 	if err := command.Process.Release(); err != nil {
-		return fmt.Errorf("释放管理界面启动进程: %w", err)
+		return fmt.Errorf("release admin UI process: %w", err)
 	}
 	return nil
 }

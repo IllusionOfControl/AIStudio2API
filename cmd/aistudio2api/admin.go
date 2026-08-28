@@ -19,7 +19,6 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/config"
 )
 
-// runtimeAdmin 投影运行时权威状态
 type runtimeAdmin struct {
 	lifecycle  context.Context
 	pool       *aistudio.AccountPool
@@ -34,7 +33,6 @@ type runtimeAdmin struct {
 	config     config.Config
 }
 
-// requestRegistry 保存活动请求与事件订阅
 type requestRegistry struct {
 	mu          sync.Mutex
 	active      map[string]trackedRequest
@@ -66,7 +64,6 @@ func (err *adminOperationError) ErrorCode() string {
 	return err.code
 }
 
-// newRuntimeAdmin 创建管理端服务
 func newRuntimeAdmin(
 	lifecycle context.Context,
 	pool *aistudio.AccountPool,
@@ -85,7 +82,6 @@ func newRuntimeAdmin(
 	}
 }
 
-// newRequestRegistry 创建活动请求注册表
 func newRequestRegistry(ctx context.Context) *requestRegistry {
 	registry := &requestRegistry{
 		active:      make(map[string]trackedRequest),
@@ -148,25 +144,25 @@ func (admin *runtimeAdmin) CreateAccount(ctx context.Context, input api.AccountI
 	}
 	directory, err := os.MkdirTemp("", "aistudio2api-account-login-*")
 	if err != nil {
-		return api.AdminAccount{}, fmt.Errorf("创建隔离登录目录: %w", err)
+		return api.AdminAccount{}, fmt.Errorf("create isolated login directory: %w", err)
 	}
 	defer os.RemoveAll(directory)
 	startedAt := time.Now()
-	admin.requests.log("auth", "INFO", "账户添加 | 1/2 | 等待隔离登录")
+	admin.requests.log("auth", "INFO", "Account addition | 1/2 | Waiting for isolated login")
 	result, err := admin.login.Login(ctx, aistudio.IsolatedLoginRequest{
 		AccountID: "new", Directory: directory, Proxy: admin.effectiveProxy(accountConfig.Proxy),
 		Locale: accountConfig.Locale, Timezone: accountConfig.Timezone,
 	})
 	if err != nil {
 		admin.requests.log("auth", "ERROR", fmt.Sprintf(
-			"账户添加失败 | 耗时=%s | 错误=%s",
+			"Account addition failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return api.AdminAccount{}, err
 	}
-	admin.requests.log("auth", "INFO", "账户添加 | 2/2 | 保存认证状态")
+	admin.requests.log("auth", "INFO", "Account addition | 2/2 | Saving auth state")
 	if _, err := aistudio.NewSigner().Sign(result.StorageState); err != nil {
-		return api.AdminAccount{}, fmt.Errorf("认证状态无法用于 AI Studio: %w", err)
+		return api.AdminAccount{}, fmt.Errorf("auth state cannot be used for AI Studio: %w", err)
 	}
 	account, err := admin.store.Create(accountConfig, result.StorageState)
 	if err != nil {
@@ -187,7 +183,7 @@ func (admin *runtimeAdmin) CreateAccount(ctx context.Context, input api.AccountI
 		)
 	}
 	admin.requests.log("auth", "INFO", fmt.Sprintf(
-		"账户添加完成 | 账户=%s | 耗时=%s",
+		"Account addition completed | account=%s | elapsed=%s",
 		account.Config.Label, time.Since(startedAt).Round(time.Millisecond),
 	))
 	admin.syncModelCache(ctx)
@@ -196,7 +192,7 @@ func (admin *runtimeAdmin) CreateAccount(ctx context.Context, input api.AccountI
 
 func (admin *runtimeAdmin) UpdateAccount(ctx context.Context, accountID string, input api.AccountInput) (api.AdminAccount, error) {
 	if !strings.EqualFold(strings.TrimSpace(input.Label), strings.TrimSpace(accountID)) {
-		return api.AdminAccount{}, invalidAccount(fmt.Errorf("账户邮箱不可修改"))
+		return api.AdminAccount{}, invalidAccount(fmt.Errorf("account email cannot be modified"))
 	}
 	accountConfig := aistudio.DefaultAccountConfig(strings.ToLower(strings.TrimSpace(accountID)))
 	accountConfig.Enabled = input.Enabled
@@ -223,7 +219,7 @@ func (admin *runtimeAdmin) UpdateAccount(ctx context.Context, accountID string, 
 	if err := lease.Release(); err != nil {
 		return api.AdminAccount{}, err
 	}
-	admin.requests.log("auth", "INFO", "账户配置已更新 | 账户="+accountConfig.Label)
+	admin.requests.log("auth", "INFO", "Account config updated | account="+accountConfig.Label)
 	admin.syncModelCache(ctx)
 	return admin.account(account.ID)
 }
@@ -245,7 +241,7 @@ func (admin *runtimeAdmin) DeleteAccount(ctx context.Context, accountID string) 
 	if err := errors.Join(admin.workers.Remove(accountID), admin.headers.Remove(accountID)); err != nil {
 		return err
 	}
-	admin.requests.log("auth", "INFO", "账户已删除 | 账户="+account.Label)
+	admin.requests.log("auth", "INFO", "Account deleted | account="+account.Label)
 	admin.syncModelCache(ctx)
 	return nil
 }
@@ -261,25 +257,25 @@ func (admin *runtimeAdmin) LoginAccount(ctx context.Context, accountID string) (
 	}
 	directory, err := os.MkdirTemp("", "aistudio2api-account-login-*")
 	if err != nil {
-		return api.AdminAccount{}, errors.Join(fmt.Errorf("创建隔离登录目录: %w", err), lease.Release())
+		return api.AdminAccount{}, errors.Join(fmt.Errorf("create isolated login directory: %w", err), lease.Release())
 	}
 	defer os.RemoveAll(directory)
 	if err := camoufoxnative.PersistAccountFingerprint(account.Directory, directory); err != nil {
 		return api.AdminAccount{}, errors.Join(err, lease.Release())
 	}
 	startedAt := time.Now()
-	admin.requests.log(account.Config.Label, "INFO", "账户登录 | 1/2 | 等待隔离登录")
+	admin.requests.log(account.Config.Label, "INFO", "Account login | 1/2 | Waiting for isolated login")
 	result, err := admin.login.Login(ctx, admin.loginRequest(account, directory))
 	if err != nil {
 		admin.requests.log(account.Config.Label, "ERROR", fmt.Sprintf(
-			"账户登录失败 | 耗时=%s | 错误=%s",
+			"Account login failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return api.AdminAccount{}, errors.Join(err, lease.Release())
 	}
-	admin.requests.log(account.Config.Label, "INFO", "账户登录 | 2/2 | 保存认证状态")
+	admin.requests.log(account.Config.Label, "INFO", "Account login | 2/2 | Saving auth state")
 	if _, err := aistudio.NewSigner().Sign(result.StorageState); err != nil {
-		return api.AdminAccount{}, errors.Join(fmt.Errorf("认证状态无法用于 AI Studio: %w", err), lease.Release())
+		return api.AdminAccount{}, errors.Join(fmt.Errorf("auth state cannot be used for AI Studio: %w", err), lease.Release())
 	}
 	if err := camoufoxnative.PersistAccountFingerprint(directory, account.Directory); err != nil {
 		return api.AdminAccount{}, errors.Join(err, lease.Release())
@@ -297,7 +293,7 @@ func (admin *runtimeAdmin) LoginAccount(ctx context.Context, accountID string) (
 		return api.AdminAccount{}, err
 	}
 	admin.requests.log(account.Config.Label, "INFO", fmt.Sprintf(
-		"账户登录完成 | 耗时=%s",
+		"Account login completed | elapsed=%s",
 		time.Since(startedAt).Round(time.Millisecond),
 	))
 	admin.syncModelCache(ctx)
@@ -311,11 +307,11 @@ func (admin *runtimeAdmin) VerifyAccount(ctx context.Context, accountID string) 
 	}
 	account := lease.Account()
 	startedAt := time.Now()
-	admin.requests.log(account.Config.Label, "INFO", "账户验证 | 访问 AI Studio")
+	admin.requests.log(account.Config.Label, "INFO", "Account verification | Accessing AI Studio")
 	verification, err := admin.login.Verify(ctx, admin.loginRequest(account, account.Directory), account.StorageState)
 	if err != nil {
 		admin.requests.log(account.Config.Label, "ERROR", fmt.Sprintf(
-			"账户验证失败 | 耗时=%s | 错误=%s",
+			"Account verification failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return api.AdminAccount{}, errors.Join(err, lease.Release())
@@ -325,7 +321,7 @@ func (admin *runtimeAdmin) VerifyAccount(ctx context.Context, accountID string) 
 	} else {
 		reason := strings.TrimSpace(verification.Reason)
 		if reason == "" {
-			reason = "AI Studio 登录已失效"
+			reason = "AI Studio login expired"
 		}
 		err = admin.pool.MarkAuthRequired(account.ID, reason)
 	}
@@ -336,7 +332,7 @@ func (admin *runtimeAdmin) VerifyAccount(ctx context.Context, accountID string) 
 		return api.AdminAccount{}, err
 	}
 	admin.requests.log(account.Config.Label, "INFO", fmt.Sprintf(
-		"账户验证完成 | 已认证=%t | 耗时=%s",
+		"Account verification completed | authenticated=%t | elapsed=%s",
 		verification.Authenticated, time.Since(startedAt).Round(time.Millisecond),
 	))
 	admin.syncModelCache(ctx)
@@ -361,40 +357,40 @@ func (admin *runtimeAdmin) StartService(ctx context.Context) (api.AdminStatus, e
 		}
 		if errors.Is(err, context.Canceled) && admin.service.State() == "STOPPED" {
 			admin.requests.log("service", "INFO", fmt.Sprintf(
-				"生成服务启动已取消 | 耗时=%s",
+				"Generation service startup canceled | elapsed=%s",
 				time.Since(startedAt).Round(time.Millisecond),
 			))
 			return status, statusErr
 		}
 		admin.requests.log("service", "ERROR", fmt.Sprintf(
-			"生成服务启动失败 | 耗时=%s | 错误=%s",
+			"Generation service startup failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		if errors.Is(err, aistudio.ErrNoEligibleAccount) {
 			return api.AdminStatus{}, &adminOperationError{
-				status: http.StatusBadRequest, code: "account_required", message: "请先启用一个可用账户",
+				status: http.StatusBadRequest, code: "account_required", message: "Please enable an eligible account first",
 			}
 		}
 		return api.AdminStatus{}, err
 	}
 	if len(models) == 0 {
 		admin.requests.log("service", "ERROR", fmt.Sprintf(
-			"生成服务启动失败 | 耗时=%s | 错误=没有可用账户",
+			"Generation service startup failed | elapsed=%s | error=no eligible accounts",
 			time.Since(startedAt).Round(time.Millisecond),
 		))
 		return api.AdminStatus{}, &adminOperationError{
-			status: http.StatusBadRequest, code: "account_required", message: "请先添加一个可用账户",
+			status: http.StatusBadRequest, code: "account_required", message: "Please add an eligible account first",
 		}
 	}
 	if started {
 		admin.requests.log("service", "INFO", fmt.Sprintf(
-			"生成服务就绪 | 模型=%d | Worker=%d/%d | 耗时=%s",
+			"Generation service ready | models=%d | workers=%d/%d | elapsed=%s",
 			len(models), len(admin.workers.WarmAccountIDs()), admin.workers.PrewarmTarget(),
 			time.Since(startedAt).Round(time.Millisecond),
 		))
 	} else {
 		admin.requests.log("service", "INFO", fmt.Sprintf(
-			"生成服务运行中 | 模型=%d | Worker=%d/%d",
+			"Generation service running | models=%d | workers=%d/%d",
 			len(models), len(admin.workers.WarmAccountIDs()), admin.workers.PrewarmTarget(),
 		))
 	}
@@ -408,24 +404,24 @@ func (admin *runtimeAdmin) StartService(ctx context.Context) (api.AdminStatus, e
 func (admin *runtimeAdmin) StopService(ctx context.Context) (api.AdminStatus, error) {
 	startedAt := time.Now()
 	admin.requests.log("service", "INFO", fmt.Sprintf(
-		"生成服务停止 | Worker=%d",
+		"Generation service stopping | workers=%d",
 		len(admin.workers.WarmAccountIDs()),
 	))
 	stopped, err := admin.service.Stop()
 	if err != nil {
 		admin.requests.log("service", "ERROR", fmt.Sprintf(
-			"生成服务停止失败 | 耗时=%s | 错误=%s",
+			"Generation service stop failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return api.AdminStatus{}, err
 	}
 	if stopped {
 		admin.requests.log("service", "INFO", fmt.Sprintf(
-			"生成服务已停止 | 耗时=%s",
+			"Generation service stopped | elapsed=%s",
 			time.Since(startedAt).Round(time.Millisecond),
 		))
 	} else {
-		admin.requests.log("service", "INFO", "生成服务已处于停止状态")
+		admin.requests.log("service", "INFO", "Generation service is already stopped")
 	}
 	status, err := admin.Status(ctx)
 	if err == nil {
@@ -439,26 +435,24 @@ func (admin *runtimeAdmin) ClearLogs(context.Context) error {
 	return nil
 }
 
-// RecordAccessStart 保存公开 API 请求的开始记录
 func (admin *runtimeAdmin) RecordAccessStart(entry api.AccessLog) {
 	source := strings.TrimSpace(entry.Account)
 	if source == "" {
 		source = "request"
 	}
-	message := fmt.Sprintf("请求开始 | %s %q", entry.Method, entry.Path)
+	message := fmt.Sprintf("Request started | %s %q", entry.Method, entry.Path)
 	if model := strings.TrimSpace(entry.Model); model != "" {
 		message += " | " + model
 	}
 	if entry.Generation {
 		message += fmt.Sprintf(
-			" | 温度=%s | TopP=%s | 思考=%s | 最大=%s",
+			" | temp=%s | topP=%s | thinking=%s | maxTokens=%s",
 			entry.Temperature, entry.TopP, entry.Thinking, entry.MaxOutputTokens,
 		)
 	}
 	admin.requests.log(source, "INFO", message)
 }
 
-// RecordAccessLog 保存公开 API 请求的最终访问记录
 func (admin *runtimeAdmin) RecordAccessLog(entry api.AccessLog) {
 	source := strings.TrimSpace(entry.Account)
 	if source == "" {
@@ -481,15 +475,15 @@ func (admin *runtimeAdmin) RecordAccessLog(entry api.AccessLog) {
 	)
 	if entry.Generation {
 		message += fmt.Sprintf(
-			" | %s | 首事件=%s | 首正文=%s | %d字/正文%dt",
+			" | %s | firstEvent=%s | firstContent=%s | %dchars/content%dt",
 			model, logDuration(entry.FirstEvent), logDuration(entry.FirstContent),
 			entry.ContentChars, entry.OutputTokens,
 		)
 		if entry.ReasoningTokens > 0 {
-			message += fmt.Sprintf("/思考%dt", entry.ReasoningTokens)
+			message += fmt.Sprintf("/thinking%dt", entry.ReasoningTokens)
 		}
 		if finishReason := strings.TrimSpace(entry.FinishReason); finishReason != "" {
-			message += " | 终止=" + finishReason
+			message += " | finish=" + finishReason
 		}
 	} else if model != "-" {
 		message += " | " + model
@@ -497,9 +491,9 @@ func (admin *runtimeAdmin) RecordAccessLog(entry api.AccessLog) {
 	if entry.Canceled {
 		message += " | client_canceled"
 	} else if requestErr != "" {
-		message += "\n错误: " + requestErr
+		message += "\nError: " + requestErr
 	} else if entry.Status >= http.StatusBadRequest {
-		message += fmt.Sprintf("\n错误: HTTP %d", entry.Status)
+		message += fmt.Sprintf("\nError: HTTP %d", entry.Status)
 	}
 	admin.requests.log(source, level, message)
 }
@@ -512,7 +506,6 @@ func (admin *runtimeAdmin) syncModelCache(ctx context.Context) {
 	}
 }
 
-// publishRuntimeSnapshot 推送管理页权威运行状态
 func (admin *runtimeAdmin) publishRuntimeSnapshot(ctx context.Context, status api.AdminStatus) {
 	models, err := admin.service.Models(ctx)
 	if err != nil {
@@ -594,11 +587,11 @@ func (admin *runtimeAdmin) RuntimeConfig(context.Context) (api.RuntimeConfig, er
 func (admin *runtimeAdmin) UpdateRuntimeConfig(_ context.Context, value api.RuntimeConfig) (api.RuntimeConfig, error) {
 	initTimeout, err := time.ParseDuration(value.InitTimeout)
 	if err != nil {
-		return api.RuntimeConfig{}, fmt.Errorf("INIT_TIMEOUT 无效: %w", err)
+		return api.RuntimeConfig{}, fmt.Errorf("invalid INIT_TIMEOUT: %w", err)
 	}
 	requestTimeout, err := time.ParseDuration(value.RequestTimeout)
 	if err != nil {
-		return api.RuntimeConfig{}, fmt.Errorf("REQUEST_TIMEOUT 无效: %w", err)
+		return api.RuntimeConfig{}, fmt.Errorf("invalid REQUEST_TIMEOUT: %w", err)
 	}
 	cfg := config.Config{
 		AuthStates: value.AuthStates, ListenAddr: value.ListenAddr, ProxyAPIKey: value.APIKey,
@@ -613,7 +606,7 @@ func (admin *runtimeAdmin) UpdateRuntimeConfig(_ context.Context, value api.Runt
 	admin.configMu.Lock()
 	admin.config = cfg
 	admin.configMu.Unlock()
-	admin.requests.log("service", "INFO", "服务配置已保存 | 重启后生效")
+	admin.requests.log("service", "INFO", "Service config saved | Effective after restart")
 	return runtimeConfigDTO(cfg), nil
 }
 
@@ -835,7 +828,7 @@ func (registry *requestRegistry) cancel(id string) error {
 	if !exists {
 		return &adminOperationError{
 			status: http.StatusNotFound, code: "request_not_found",
-			message: fmt.Sprintf("活动请求不存在: %s", id),
+			message: fmt.Sprintf("active request not found: %s", id),
 		}
 	}
 	tracked.cancel()
@@ -941,7 +934,6 @@ func (registry *requestRegistry) publishLocked(event api.AdminEvent) {
 	}
 }
 
-// publish 向管理页订阅者发布增量事件
 func (registry *requestRegistry) publish(event api.AdminEvent) {
 	registry.mu.Lock()
 	registry.publishLocked(event)

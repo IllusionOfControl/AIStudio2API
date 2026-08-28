@@ -18,17 +18,16 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/config"
 )
 
-// newRuntime 装配账户池、协议客户端与管理服务
 func newRuntime(ctx context.Context, cfg config.Config) (aistudio.Service, *runtimeAdmin, func() error, error) {
 	startedAt := time.Now()
 	requests := newRequestRegistry(ctx)
-	requests.log("service", "INFO", "应用启动 | 1/4 | 载入账户")
+	requests.log("service", "INFO", "App startup | 1/4 | Loading accounts")
 	store := aistudio.NewAccountStore(strings.Split(cfg.AuthStates, ",")...)
 	accounts, err := store.Load()
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	requests.log("service", "INFO", fmt.Sprintf("应用启动 | 2/4 | 校验 Camoufox | 账户=%d", len(accounts)))
+	requests.log("service", "INFO", fmt.Sprintf("App startup | 2/4 | Verifying Camoufox | accounts=%d", len(accounts)))
 	camoufoxPath, err := findCamoufoxExecutable()
 	if err != nil {
 		return nil, nil, nil, err
@@ -38,7 +37,7 @@ func newRuntime(ctx context.Context, cfg config.Config) (aistudio.Service, *runt
 		return nil, nil, nil, err
 	}
 
-	requests.log("service", "INFO", "应用启动 | 3/4 | 装配协议运行时")
+	requests.log("service", "INFO", "App startup | 3/4 | Assembling protocol runtime")
 	pool := aistudio.NewAccountPool(accounts, cfg.PerAccountConcurrency)
 	headers, err := newAccountHeaderProvider(accounts, cfg.Proxy)
 	if err != nil {
@@ -84,7 +83,7 @@ func newRuntime(ctx context.Context, cfg config.Config) (aistudio.Service, *runt
 	service := newTrackedService(ctx, pooled, pool, requests, workers, cfg.RequestTimeout)
 	admin := newRuntimeAdmin(ctx, pool, store, service, requests, login, workers, headers, cfg)
 	requests.log("service", "INFO", fmt.Sprintf(
-		"协议运行时就绪 | 账户=%d | 耗时=%s",
+		"Protocol runtime ready | accounts=%d | elapsed=%s",
 		len(accounts), time.Since(startedAt).Round(time.Millisecond),
 	))
 	closeRuntime := func() error {
@@ -95,7 +94,6 @@ func newRuntime(ctx context.Context, cfg config.Config) (aistudio.Service, *runt
 	return service, admin, closeRuntime, nil
 }
 
-// accountWorkerManager 管理每账户的长驻 WAA worker
 type accountWorkerManager struct {
 	mu              sync.RWMutex
 	fillMu          sync.Mutex
@@ -129,9 +127,8 @@ type accountWorkerPreparer struct {
 	worker  *aistudio.NativeWorker
 }
 
-var errAccountWorkerReplaced = errors.New("WAA worker 已更新")
+var errAccountWorkerReplaced = errors.New("WAA worker has been updated")
 
-// Prepare 在账户 Worker 有效期间生成 proof
 func (preparer *accountWorkerPreparer) Prepare(ctx context.Context, request aistudio.ProtectedRequest) (aistudio.PreparedProtectedRequest, error) {
 	preparer.account.mu.Lock()
 	defer preparer.account.mu.Unlock()
@@ -141,7 +138,6 @@ func (preparer *accountWorkerPreparer) Prepare(ctx context.Context, request aist
 	return preparer.worker.Prepare(ctx, request)
 }
 
-// accountWorkerInitError 表示单个账户的 WAA worker 初始化失败
 type accountWorkerInitError struct {
 	err error
 }
@@ -154,7 +150,6 @@ func (err *accountWorkerInitError) Unwrap() error {
 	return err.err
 }
 
-// newAccountWorkerManager 创建账户 worker 配置
 func newAccountWorkerManager(
 	pool *aistudio.AccountPool,
 	accounts []*aistudio.Account,
@@ -182,30 +177,28 @@ func newAccountWorkerManager(
 	return manager
 }
 
-// Add 注册新账户的 WAA worker 配置
 func (manager *accountWorkerManager) Add(account *aistudio.Account) error {
 	if account == nil {
-		return fmt.Errorf("账户未初始化")
+		return fmt.Errorf("account not initialized")
 	}
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 	if manager.closed {
-		return fmt.Errorf("WAA worker manager 已关闭")
+		return fmt.Errorf("WAA worker manager closed")
 	}
 	if _, exists := manager.accounts[account.ID]; exists {
-		return fmt.Errorf("WAA worker 账户已存在: %s", account.ID)
+		return fmt.Errorf("WAA worker account already exists: %s", account.ID)
 	}
 	manager.accounts[account.ID] = manager.newAccountWorker(account)
 	return nil
 }
 
-// Reset 关闭账户当前 WAA worker 并保留重建配置
 func (manager *accountWorkerManager) Reset(accountID string) error {
 	manager.mu.RLock()
 	account := manager.accounts[accountID]
 	manager.mu.RUnlock()
 	if account == nil {
-		return fmt.Errorf("WAA worker 账户不存在: %s", accountID)
+		return fmt.Errorf("WAA worker account not found: %s", accountID)
 	}
 	account.mu.Lock()
 	defer account.mu.Unlock()
@@ -214,32 +207,31 @@ func (manager *accountWorkerManager) Reset(accountID string) error {
 	}
 	startedAt := time.Now()
 	pid := account.worker.State().PID
-	manager.requests.log(account.label, "INFO", fmt.Sprintf("WAA Worker 停止 | PID=%d", pid))
+	manager.requests.log(account.label, "INFO", fmt.Sprintf("WAA worker stopping | PID=%d", pid))
 	err := closeAccountWorker(account)
 	if err != nil {
 		manager.requests.log(account.label, "ERROR", fmt.Sprintf(
-			"WAA Worker 停止失败 | PID=%d | 耗时=%s | 错误=%s",
+			"WAA worker stop failed | PID=%d | elapsed=%s | error=%s",
 			pid, time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return err
 	}
 	manager.requests.log(account.label, "INFO", fmt.Sprintf(
-		"WAA Worker 已停止 | PID=%d | 耗时=%s",
+		"WAA worker stopped | PID=%d | elapsed=%s",
 		pid, time.Since(startedAt).Round(time.Millisecond),
 	))
 	return err
 }
 
-// Update 关闭账户当前 worker 并替换固定运行配置
 func (manager *accountWorkerManager) Update(account *aistudio.Account) error {
 	if account == nil {
-		return fmt.Errorf("账户未初始化")
+		return fmt.Errorf("account not initialized")
 	}
 	manager.mu.RLock()
 	worker := manager.accounts[account.ID]
 	manager.mu.RUnlock()
 	if worker == nil {
-		return fmt.Errorf("WAA worker 账户不存在: %s", account.ID)
+		return fmt.Errorf("WAA worker account not found: %s", account.ID)
 	}
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
@@ -253,7 +245,6 @@ func (manager *accountWorkerManager) Update(account *aistudio.Account) error {
 	return nil
 }
 
-// ResetAll 关闭全部账户当前 worker 并保留后续按需重建能力
 func (manager *accountWorkerManager) ResetAll() error {
 	manager.mu.RLock()
 	accountIDs := make([]string, 0, len(manager.accounts))
@@ -268,7 +259,6 @@ func (manager *accountWorkerManager) ResetAll() error {
 	return errors.Join(resetErrors...)
 }
 
-// Remove 删除账户的 WAA worker 配置
 func (manager *accountWorkerManager) Remove(accountID string) error {
 	if err := manager.Reset(accountID); err != nil {
 		return err
@@ -295,7 +285,6 @@ func (manager *accountWorkerManager) workerConfig(account *aistudio.Account) cam
 	}
 }
 
-// WarmAccountIDs 返回当前驻留的健康 WAA worker
 func (manager *accountWorkerManager) WarmAccountIDs() []string {
 	manager.mu.RLock()
 	accounts := make([]*accountWorker, 0, len(manager.accounts))
@@ -312,7 +301,6 @@ func (manager *accountWorkerManager) WarmAccountIDs() []string {
 	return warm
 }
 
-// PrewarmTarget 返回当前配置需要预热的账户数
 func (manager *accountWorkerManager) PrewarmTarget() int {
 	available := 0
 	for _, status := range manager.pool.Status() {
@@ -372,7 +360,6 @@ func (manager *accountWorkerManager) classifyBootstrapCandidates(warm []string) 
 	return combined, nil
 }
 
-// WorkerFailed 返回账户驻留 worker 是否已经失败
 func (manager *accountWorkerManager) WorkerFailed(accountID string) bool {
 	manager.mu.RLock()
 	account := manager.accounts[accountID]
@@ -385,17 +372,16 @@ func (manager *accountWorkerManager) WorkerFailed(accountID string) bool {
 	return account.worker != nil && account.worker.State().Phase == aistudio.WorkerFailed
 }
 
-// Worker 返回账户当前可用的 WAA preparer
 func (manager *accountWorkerManager) Worker(ctx context.Context, accountID string) (aistudio.ProtectedPreparer, error) {
 	manager.mu.RLock()
 	if manager.closed {
 		manager.mu.RUnlock()
-		return nil, fmt.Errorf("WAA worker manager 已关闭")
+		return nil, fmt.Errorf("WAA worker manager closed")
 	}
 	account := manager.accounts[accountID]
 	manager.mu.RUnlock()
 	if account == nil {
-		return nil, fmt.Errorf("账户不存在: %s", accountID)
+		return nil, fmt.Errorf("account not found: %s", accountID)
 	}
 	account.mu.Lock()
 	defer account.mu.Unlock()
@@ -412,7 +398,7 @@ func (manager *accountWorkerManager) Worker(ctx context.Context, accountID strin
 	runtimeLease, err := aistudio.AcquireAccountRuntimeLease(account.id)
 	if err != nil {
 		manager.requests.log(account.label, "ERROR", fmt.Sprintf(
-			"WAA Worker 启动失败 | 耗时=%s | 错误=%s",
+			"WAA worker startup failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return nil, &accountWorkerInitError{err: err}
@@ -425,11 +411,11 @@ func (manager *accountWorkerManager) Worker(ctx context.Context, accountID strin
 			account.runtimeLease = nil
 		}
 	}()
-	manager.requests.log(account.label, "INFO", "WAA Worker 启动 | 1/7 | 选择启动模型")
+	manager.requests.log(account.label, "INFO", "WAA worker startup | 1/7 | Selecting bootstrap model")
 	models, err := manager.pool.BootstrapModels(accountID)
 	if err != nil {
 		manager.requests.log(account.label, "ERROR", fmt.Sprintf(
-			"WAA Worker 启动失败 | 耗时=%s | 错误=%s",
+			"WAA worker startup failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return nil, err
@@ -438,13 +424,13 @@ func (manager *accountWorkerManager) Worker(ctx context.Context, accountID strin
 	for index, model := range models {
 		if err := ctx.Err(); err != nil {
 			manager.requests.log(account.label, "INFO", fmt.Sprintf(
-				"WAA Worker 启动已取消 | 耗时=%s",
+				"WAA worker startup canceled | elapsed=%s",
 				time.Since(startedAt).Round(time.Millisecond),
 			))
 			return nil, err
 		}
 		manager.requests.log(account.label, "INFO", fmt.Sprintf(
-			"WAA Worker 启动模型 | %d/%d | 模型=%s", index+1, len(models), model,
+			"WAA worker bootstrap model | %d/%d | model=%s", index+1, len(models), model,
 		))
 		modelStartedAt := time.Now()
 		initCtx, cancel := context.WithTimeout(ctx, manager.initTimeout)
@@ -452,37 +438,37 @@ func (manager *accountWorkerManager) Worker(ctx context.Context, accountID strin
 		options.Model = model
 		options.StartupProgress = func(stage camoufoxnative.StartupStage) {
 			step, message := workerStartupProgress(stage)
-			manager.requests.log(account.label, "INFO", fmt.Sprintf("WAA Worker 启动 | %d/7 | %s", step, message))
+			manager.requests.log(account.label, "INFO", fmt.Sprintf("WAA worker startup | %d/7 | %s", step, message))
 		}
 		worker, initErr := aistudio.NewNativeWorker(initCtx, account.id, options)
 		cancel()
 		if initErr != nil {
 			if err := ctx.Err(); err != nil {
 				manager.requests.log(account.label, "INFO", fmt.Sprintf(
-					"WAA Worker 启动已取消 | 耗时=%s",
+					"WAA worker startup canceled | elapsed=%s",
 					time.Since(startedAt).Round(time.Millisecond),
 				))
 				return nil, err
 			}
 			manager.requests.log(account.label, "WARN", fmt.Sprintf(
-				"WAA Worker 启动模型失败 | %d/%d | 模型=%s | 耗时=%s | 原因=%s",
+				"WAA worker bootstrap model failed | %d/%d | model=%s | elapsed=%s | reason=%s",
 				index+1, len(models), model, time.Since(modelStartedAt).Round(time.Millisecond), strings.TrimSpace(initErr.Error()),
 			))
-			failures = append(failures, fmt.Errorf("模型 %s: %w", model, initErr))
+			failures = append(failures, fmt.Errorf("model %s: %w", model, initErr))
 			continue
 		}
 		account.worker = worker
 		account.warm.Store(true)
 		workerReady = true
 		manager.requests.log(account.label, "INFO", fmt.Sprintf(
-			"WAA Worker 就绪 | 模型=%s | PID=%d | 耗时=%s",
+			"WAA worker ready | model=%s | PID=%d | elapsed=%s",
 			model, worker.State().PID, time.Since(startedAt).Round(time.Millisecond),
 		))
 		return &accountWorkerPreparer{account: account, worker: worker}, nil
 	}
 	err = errors.Join(failures...)
 	manager.requests.log(account.label, "ERROR", fmt.Sprintf(
-		"WAA Worker 启动失败 | 耗时=%s | 错误=%s",
+		"WAA worker startup failed | elapsed=%s | error=%s",
 		time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 	))
 	return nil, &accountWorkerInitError{err: err}
@@ -491,19 +477,19 @@ func (manager *accountWorkerManager) Worker(ctx context.Context, accountID strin
 func workerStartupProgress(stage camoufoxnative.StartupStage) (int, string) {
 	switch stage {
 	case camoufoxnative.StartupPreparingBrowser:
-		return 2, "准备浏览器配置"
+		return 2, "Preparing browser profile"
 	case camoufoxnative.StartupLaunchingBrowser:
-		return 3, "启动 Camoufox"
+		return 3, "Launching Camoufox"
 	case camoufoxnative.StartupConnectingBiDi:
-		return 4, "连接 WebDriver BiDi"
+		return 4, "Connecting WebDriver BiDi"
 	case camoufoxnative.StartupLoadingAIStudio:
-		return 5, "载入 AI Studio"
+		return 5, "Loading AI Studio"
 	case camoufoxnative.StartupLocatingWAA:
-		return 6, "定位 WAA 服务"
+		return 6, "Locating WAA service"
 	case camoufoxnative.StartupBootstrappingWAA:
-		return 7, "执行 WAA Bootstrap"
+		return 7, "Executing WAA bootstrap"
 	}
-	panic(fmt.Sprintf("未知 WAA Worker 启动阶段: %s", stage))
+	panic(fmt.Sprintf("unknown WAA worker startup stage: %s", stage))
 }
 
 func (manager *accountWorkerManager) idleWarmVictim(excludeID string) string {
@@ -560,14 +546,13 @@ func (manager *accountWorkerManager) promote(ctx context.Context, accountID stri
 	return err
 }
 
-// StartPrewarm 启动有界预热并在当前可用账户完成后返回
 func (manager *accountWorkerManager) StartPrewarm(ctx context.Context) <-chan error {
 	first := make(chan error, 1)
 	manager.mu.RLock()
 	closed := manager.closed
 	manager.mu.RUnlock()
 	if closed {
-		first <- fmt.Errorf("WAA worker manager 已关闭")
+		first <- fmt.Errorf("WAA worker manager closed")
 		close(first)
 		return first
 	}
@@ -575,7 +560,7 @@ func (manager *accountWorkerManager) StartPrewarm(ctx context.Context) <-chan er
 		if len(manager.WarmAccountIDs()) > 0 {
 			first <- nil
 		} else {
-			first <- fmt.Errorf("WAA 预热已在进行")
+			first <- fmt.Errorf("WAA prewarm already in progress")
 		}
 		close(first)
 		return first
@@ -615,7 +600,7 @@ func (manager *accountWorkerManager) fillWarm(ctx context.Context, first chan<- 
 		if len(warm) >= manager.warmLimit {
 			manager.rebalanceMu.Unlock()
 			manager.requests.log("service", "INFO", fmt.Sprintf(
-				"WAA Worker 预热完成 | Worker=%d/%d | 耗时=%s",
+				"WAA worker prewarm completed | workers=%d/%d | elapsed=%s",
 				len(warm), manager.PrewarmTarget(), time.Since(startedAt).Round(time.Millisecond),
 			))
 			notify(nil)
@@ -641,7 +626,7 @@ func (manager *accountWorkerManager) fillWarm(ctx context.Context, first chan<- 
 			warm = manager.WarmAccountIDs()
 			if len(warm) > 0 {
 				manager.requests.log("service", "INFO", fmt.Sprintf(
-					"WAA Worker 预热完成 | Worker=%d/%d | 失败=%d | 耗时=%s",
+					"WAA worker prewarm completed | workers=%d/%d | failed=%d | elapsed=%s",
 					len(warm), manager.PrewarmTarget(), len(failures), time.Since(startedAt).Round(time.Millisecond),
 				))
 				notify(nil)
@@ -671,7 +656,7 @@ func (manager *accountWorkerManager) fillWarm(ctx context.Context, first chan<- 
 			if ctx.Err() != nil {
 				continue
 			}
-			failure := fmt.Errorf("预热账户 %s: %w", result.accountID, result.err)
+			failure := fmt.Errorf("prewarm account %s: %w", result.accountID, result.err)
 			failures = append(failures, failure)
 			if cooldownErr := manager.pool.MarkCooldown(result.accountID, "", time.Now().Add(5*time.Minute), result.err.Error()); cooldownErr != nil {
 				failures = append(failures, cooldownErr)
@@ -691,7 +676,6 @@ func (manager *accountWorkerManager) waitPrewarm() {
 	manager.fillMu.Unlock()
 }
 
-// Close 关闭全部账户 worker
 func (manager *accountWorkerManager) Close() error {
 	manager.mu.Lock()
 	if manager.closed {
@@ -743,7 +727,6 @@ type accountHeaderState struct {
 	headers http.Header
 }
 
-// newAccountHeaderProvider 创建每账户固定出口的公开头提供器
 func newAccountHeaderProvider(accounts []*aistudio.Account, globalProxy string) (*accountHeaderProvider, error) {
 	provider := &accountHeaderProvider{
 		accounts: make(map[string]*accountHeaderState, len(accounts)), globalProxy: globalProxy,
@@ -759,40 +742,38 @@ func newAccountHeaderProvider(accounts []*aistudio.Account, globalProxy string) 
 	return provider, nil
 }
 
-// Add 注册新账户的固定出口
 func (provider *accountHeaderProvider) Add(account *aistudio.Account) error {
 	if account == nil {
-		return fmt.Errorf("账户未初始化")
+		return fmt.Errorf("account not initialized")
 	}
 	client, err := aistudio.NewProxyHTTPClient(account.EffectiveProxy(provider.globalProxy))
 	if err != nil {
-		return fmt.Errorf("创建账户 %s 的固定出口: %w", account.ID, err)
+		return fmt.Errorf("create fixed exit for account %s: %w", account.ID, err)
 	}
 	provider.mu.Lock()
 	defer provider.mu.Unlock()
 	if _, exists := provider.accounts[account.ID]; exists {
 		client.CloseIdleConnections()
-		return fmt.Errorf("账户固定出口已存在: %s", account.ID)
+		return fmt.Errorf("fixed exit already exists for account %s", account.ID)
 	}
 	provider.accounts[account.ID] = &accountHeaderState{client: client}
 	return nil
 }
 
-// Update 替换账户固定出口并清除已发现公共头
 func (provider *accountHeaderProvider) Update(account *aistudio.Account) error {
 	if account == nil {
-		return fmt.Errorf("账户未初始化")
+		return fmt.Errorf("account not initialized")
 	}
 	client, err := aistudio.NewProxyHTTPClient(account.EffectiveProxy(provider.globalProxy))
 	if err != nil {
-		return fmt.Errorf("创建账户 %s 的固定出口: %w", account.ID, err)
+		return fmt.Errorf("create fixed exit for account %s: %w", account.ID, err)
 	}
 	provider.mu.Lock()
 	current := provider.accounts[account.ID]
 	if current == nil {
 		provider.mu.Unlock()
 		client.CloseIdleConnections()
-		return fmt.Errorf("账户固定出口不存在: %s", account.ID)
+		return fmt.Errorf("fixed exit not found for account %s", account.ID)
 	}
 	provider.accounts[account.ID] = &accountHeaderState{client: client}
 	provider.mu.Unlock()
@@ -800,7 +781,6 @@ func (provider *accountHeaderProvider) Update(account *aistudio.Account) error {
 	return nil
 }
 
-// Remove 删除账户的固定出口
 func (provider *accountHeaderProvider) Remove(accountID string) error {
 	provider.mu.Lock()
 	account := provider.accounts[accountID]
@@ -809,19 +789,18 @@ func (provider *accountHeaderProvider) Remove(accountID string) error {
 	}
 	provider.mu.Unlock()
 	if account == nil {
-		return fmt.Errorf("账户固定出口不存在: %s", accountID)
+		return fmt.Errorf("fixed exit not found for account %s", accountID)
 	}
 	account.client.CloseIdleConnections()
 	return nil
 }
 
-// Invalidate 清除账户公共头并让下一次请求重新发现
 func (provider *accountHeaderProvider) Invalidate(accountID string) error {
 	provider.mu.RLock()
 	account := provider.accounts[accountID]
 	provider.mu.RUnlock()
 	if account == nil {
-		return fmt.Errorf("账户固定出口不存在: %s", accountID)
+		return fmt.Errorf("fixed exit not found for account %s", accountID)
 	}
 	account.mu.Lock()
 	account.headers = nil
@@ -829,13 +808,12 @@ func (provider *accountHeaderProvider) Invalidate(accountID string) error {
 	return nil
 }
 
-// ProtocolHeaders 返回账户当前使用的公开协议头
 func (provider *accountHeaderProvider) ProtocolHeaders(ctx context.Context, accountID string) (http.Header, error) {
 	provider.mu.RLock()
 	account := provider.accounts[accountID]
 	provider.mu.RUnlock()
 	if account == nil {
-		return nil, fmt.Errorf("账户不存在: %s", accountID)
+		return nil, fmt.Errorf("account not found: %s", accountID)
 	}
 	account.mu.Lock()
 	defer account.mu.Unlock()
@@ -849,7 +827,6 @@ func (provider *accountHeaderProvider) ProtocolHeaders(ctx context.Context, acco
 	return account.headers.Clone(), nil
 }
 
-// trackedService 跟踪生成请求及其唯一账户租约
 type trackedService struct {
 	lifecycle      context.Context
 	service        aistudio.Service
@@ -869,7 +846,6 @@ type trackedService struct {
 	performance    map[string]map[string]generationPerformance
 }
 
-// newTrackedService 创建带超时和生命周期的协议服务
 func newTrackedService(
 	lifecycle context.Context,
 	service aistudio.Service,
@@ -886,7 +862,7 @@ func newTrackedService(
 
 type serviceStoppedError struct{}
 
-var errServiceTransitioning = errors.New("生成服务正在切换状态")
+var errServiceTransitioning = errors.New("Generation service is transitioning")
 
 const (
 	serviceStopped int32 = iota
@@ -895,7 +871,7 @@ const (
 )
 
 func (*serviceStoppedError) Error() string {
-	return "AIStudio2API 服务已停止"
+	return "AIStudio2API Service stopped"
 }
 
 func (*serviceStoppedError) HTTPStatus() int {
@@ -906,12 +882,10 @@ func (*serviceStoppedError) ErrorCode() string {
 	return "service_stopped"
 }
 
-// Running 返回公开生成数据面是否接受请求
 func (service *trackedService) Running() bool {
 	return service.state.Load() == serviceRunning
 }
 
-// State 返回生成服务生命周期状态
 func (service *trackedService) State() string {
 	switch service.state.Load() {
 	case serviceLaunching:
@@ -923,7 +897,6 @@ func (service *trackedService) State() string {
 	}
 }
 
-// Start 刷新模型并创建本次公开生成数据面
 func (service *trackedService) Start(ctx context.Context, launching func()) ([]aistudio.Model, bool, error) {
 	service.lifecycleMu.Lock()
 	if service.state.Load() == serviceRunning {
@@ -948,14 +921,14 @@ func (service *trackedService) Start(ctx context.Context, launching func()) ([]a
 	if launching != nil {
 		launching()
 	}
-	service.requests.log("service", "INFO", "生成服务启动 | 1/2 | 同步模型目录")
+	service.requests.log("service", "INFO", "Generation service startup | 1/2 | Syncing model directory")
 	models, err := service.refreshModels(dataContext)
 	if err != nil || len(models) == 0 {
 		stopCaller()
 		return models, false, service.finishLaunch(transitionDone, dataCancel, err)
 	}
 	service.requests.log("service", "INFO", fmt.Sprintf(
-		"生成服务启动 | 2/2 | 预热 WAA Worker | 模型=%d | 目标=%d",
+		"Generation service startup | 2/2 | Prewarming WAA workers | models=%d | target=%d",
 		len(models), service.workers.PrewarmTarget(),
 	))
 	firstWarm := service.workers.StartPrewarm(dataContext)
@@ -965,7 +938,7 @@ func (service *trackedService) Start(ctx context.Context, launching func()) ([]a
 		return nil, false, service.finishLaunch(transitionDone, dataCancel, dataContext.Err())
 	case warmErr, ok := <-firstWarm:
 		if !ok {
-			warmErr = fmt.Errorf("WAA 预热未返回就绪账户")
+			warmErr = fmt.Errorf("WAA prewarm returned no ready accounts")
 		}
 		if warmErr != nil {
 			stopCaller()
@@ -1077,7 +1050,6 @@ func (service *trackedService) clearPerformance() {
 	service.performanceMu.Unlock()
 }
 
-// Stop 停止公开生成数据面并释放活动 worker
 func (service *trackedService) Stop() (bool, error) {
 	service.lifecycleMu.Lock()
 	state := service.state.Load()
@@ -1120,7 +1092,6 @@ func (service *trackedService) Stop() (bool, error) {
 	return true, resetErr
 }
 
-// Models 返回最近一次启动时确认的模型目录
 func (service *trackedService) Models(context.Context) ([]aistudio.Model, error) {
 	return service.modelSnapshot(), nil
 }
@@ -1162,13 +1133,13 @@ func (service *trackedService) refreshModels(ctx context.Context) ([]aistudio.Mo
 	if err != nil {
 		if requestCtx.Err() != nil {
 			service.requests.log("service", "INFO", fmt.Sprintf(
-				"模型目录同步已取消 | 耗时=%s",
+				"Model directory sync canceled | elapsed=%s",
 				time.Since(startedAt).Round(time.Millisecond),
 			))
 			return nil, requestCtx.Err()
 		}
 		service.requests.log("service", "ERROR", fmt.Sprintf(
-			"模型目录同步失败 | 耗时=%s | 错误=%s",
+			"Model directory sync failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return nil, err
@@ -1177,13 +1148,12 @@ func (service *trackedService) refreshModels(ctx context.Context) ([]aistudio.Mo
 	service.models = append([]aistudio.Model(nil), models...)
 	service.modelsMu.Unlock()
 	service.requests.log("service", "INFO", fmt.Sprintf(
-		"模型目录同步完成 | 模型=%d | 耗时=%s",
+		"Model directory sync completed | models=%d | elapsed=%s",
 		len(models), time.Since(startedAt).Round(time.Millisecond),
 	))
 	return append([]aistudio.Model(nil), models...), nil
 }
 
-// SyncModels 在账户变化后刷新或清空公开模型目录
 func (service *trackedService) SyncModels(ctx context.Context) error {
 	service.lifecycleMu.Lock()
 	if service.state.Load() != serviceRunning {
@@ -1233,7 +1203,6 @@ func (service *trackedService) observedDataRequestContext(
 	return observed, cancel, nil
 }
 
-// CountTokens 返回上游权威输入 token 数
 func (service *trackedService) CountTokens(ctx context.Context, request aistudio.TokenCountRequest) (aistudio.TokenCount, error) {
 	requestCtx, cancel, err := service.observedDataRequestContext(ctx, request.Model)
 	if err != nil {
@@ -1245,7 +1214,6 @@ func (service *trackedService) CountTokens(ctx context.Context, request aistudio
 	return count, requestErr
 }
 
-// GenerateVideo 创建一个 Veo 长任务
 func (service *trackedService) GenerateVideo(ctx context.Context, request aistudio.VideoRequest) (aistudio.VideoOperation, error) {
 	requestCtx, cancel, err := service.observedDataRequestContext(ctx, request.Model)
 	if err != nil {
@@ -1254,14 +1222,13 @@ func (service *trackedService) GenerateVideo(ctx context.Context, request aistud
 	defer cancel()
 	video, ok := service.service.(aistudio.VideoService)
 	if !ok {
-		return aistudio.VideoOperation{}, fmt.Errorf("video service 不可用")
+		return aistudio.VideoOperation{}, fmt.Errorf("video service unavailable")
 	}
 	operation, requestErr := video.GenerateVideo(requestCtx, request)
 	api.SetAccessLogError(requestCtx, requestErr)
 	return operation, requestErr
 }
 
-// GetGenerateVideoOperation 读取 Veo 长任务状态
 func (service *trackedService) GetGenerateVideoOperation(ctx context.Context, operationID string) (aistudio.VideoOperation, error) {
 	requestCtx, cancel, err := service.observedDataRequestContext(ctx, "")
 	if err != nil {
@@ -1270,14 +1237,13 @@ func (service *trackedService) GetGenerateVideoOperation(ctx context.Context, op
 	defer cancel()
 	video, ok := service.service.(aistudio.VideoService)
 	if !ok {
-		return aistudio.VideoOperation{}, fmt.Errorf("video service 不可用")
+		return aistudio.VideoOperation{}, fmt.Errorf("video service unavailable")
 	}
 	operation, requestErr := video.GetGenerateVideoOperation(requestCtx, operationID)
 	api.SetAccessLogError(requestCtx, requestErr)
 	return operation, requestErr
 }
 
-// DownloadFile 下载生成任务绑定的 Drive 文件
 func (service *trackedService) DownloadFile(ctx context.Context, fileID string) (aistudio.Media, error) {
 	requestCtx, cancel, err := service.observedDataRequestContext(ctx, "")
 	if err != nil {
@@ -1286,7 +1252,7 @@ func (service *trackedService) DownloadFile(ctx context.Context, fileID string) 
 	defer cancel()
 	video, ok := service.service.(aistudio.VideoService)
 	if !ok {
-		return aistudio.Media{}, fmt.Errorf("video service 不可用")
+		return aistudio.Media{}, fmt.Errorf("video service unavailable")
 	}
 	media, requestErr := video.DownloadFile(requestCtx, fileID)
 	api.SetAccessLogError(requestCtx, requestErr)
@@ -1401,12 +1367,12 @@ func (timing *requestPreparationTiming) snapshot(now time.Time) (string, time.Du
 	case aistudio.RequestPhaseSendingUpstream:
 		responseHeader += elapsed
 	}
-	current := "流已建立"
+	current := "stream established"
 	switch timing.phase {
 	case aistudio.RequestPhasePreparingWAA:
 		current = "WAA proof"
 	case aistudio.RequestPhaseSendingUpstream:
-		current = "等待上游响应头"
+		current = "waiting for upstream response headers"
 	}
 	return current, waa, responseHeader
 }
@@ -1432,19 +1398,18 @@ func (activity *upstreamActivity) observe(count int) {
 
 func (activity *upstreamActivity) logFields(now time.Time) string {
 	if activity == nil {
-		return "网络字节=0"
+		return "network_bytes=0"
 	}
 	lastNano := activity.lastNano.Load()
 	if lastNano == 0 {
-		return "网络字节=0"
+		return "network_bytes=0"
 	}
 	return fmt.Sprintf(
-		"网络字节=%d | 最近网络=%s",
+		"network_bytes=%d | last_network=%s",
 		activity.bytes.Load(), now.Sub(time.Unix(0, lastNano)).Round(time.Millisecond),
 	)
 }
 
-// Generate 获取唯一账户并转发规范事件流
 func (service *trackedService) Generate(ctx context.Context, request aistudio.GenerateRequest) (<-chan aistudio.Event, error) {
 	generationStartedAt := time.Now()
 	api.SetAccessLogTarget(ctx, request.Model, "")
@@ -1554,7 +1519,7 @@ func (service *trackedService) generateWithRetry(
 		prepareWarning := time.AfterFunc(streamStallThreshold, func() {
 			current, _, _ := prepareTiming.snapshot(time.Now())
 			service.requests.log(accountLabel, "WARN", fmt.Sprintf(
-				"请求准备等待 | 已等待=%s | 当前=%s | 模型=%s",
+				"Request preparation waiting | elapsed=%s | current=%s | model=%s",
 				streamStallThreshold, current, modelID,
 			))
 			close(prepareWarningDone)
@@ -1569,7 +1534,7 @@ func (service *trackedService) generateWithRetry(
 			<-prepareWarningDone
 			_, waa, responseHeader := prepareTiming.snapshot(time.Now())
 			service.requests.log(accountLabel, "INFO", fmt.Sprintf(
-				"请求准备结束 | 等待=%s | WAA=%s | 响应头=%s | 模型=%s",
+				"Request preparation finished | elapsed=%s | waa=%s | resp_header=%s | model=%s",
 				prepareElapsed.Round(time.Millisecond), waa.Round(time.Millisecond),
 				responseHeader.Round(time.Millisecond), modelID,
 			))
@@ -1580,13 +1545,13 @@ func (service *trackedService) generateWithRetry(
 			first, err = firstGenerateEvent(requestCtx, source, func() {
 				firstEventDelayed = true
 				service.requests.log(accountLabel, "WARN", fmt.Sprintf(
-					"上游首事件等待 | 已等待=%s | 模型=%s | %s",
+					"Upstream first event waiting | elapsed=%s | model=%s | %s",
 					streamStallThreshold, modelID, activity.logFields(time.Now()),
 				))
 			})
 			if firstEventDelayed && err == nil {
 				service.requests.log(accountLabel, "INFO", fmt.Sprintf(
-					"上游首事件到达 | 等待=%s | 事件=%s | 模型=%s",
+					"Upstream first event arrived | elapsed=%s | event=%s | model=%s",
 					time.Since(upstreamStartedAt).Round(time.Millisecond), first.Kind, modelID,
 				))
 			}
@@ -1666,12 +1631,12 @@ func (service *trackedService) generateWithRetry(
 		}
 		if recoverWorker {
 			service.requests.log(accountLabel, "WARN", fmt.Sprintf(
-				"WAA Worker 重新调度 | 模型=%s | 重放当前请求", modelID,
+				"WAA worker rescheduled | model=%s | replaying current request", modelID,
 			))
 			continue
 		}
 		switchMessage := fmt.Sprintf(
-			"账号切换 | 模型=%s\n原因: %s",
+			"Account switched | model=%s\nReason: %s",
 			modelID, strings.TrimSpace(err.Error()),
 		)
 		service.requests.log(accountLabel, "WARN", switchMessage)
@@ -1843,7 +1808,7 @@ func (service *trackedService) forwardEvents(
 				stalled = true
 				stall = nil
 				service.requests.log(accountLabel, "WARN", fmt.Sprintf(
-					"事件流停顿 | 模型=%s | 已等待=%s | 最近事件=%s | 推理=%d | 正文=%d | %s",
+					"Event stream stalled | model=%s | elapsed=%s | last_event=%s | reasoning=%d | content=%d | %s",
 					modelID, streamStallThreshold, lastEventKind, reasoningEvents, contentEvents,
 					activity.logFields(time.Now()),
 				))
@@ -1871,7 +1836,7 @@ func (service *trackedService) forwardEvents(
 		now := time.Now()
 		if stalled {
 			service.requests.log(accountLabel, "INFO", fmt.Sprintf(
-				"事件流恢复 | 模型=%s | 停顿=%s | 当前事件=%s",
+				"Event stream resumed | model=%s | stalled=%s | current_event=%s",
 				modelID, now.Sub(lastEventAt).Round(time.Millisecond), event.Kind,
 			))
 			stalled = false
