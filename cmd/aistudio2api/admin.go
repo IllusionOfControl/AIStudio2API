@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"runtime/debug"
@@ -17,33 +16,21 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/api"
 	"github.com/Mag1cFall/AIStudio2API/internal/camoufoxnative"
 	"github.com/Mag1cFall/AIStudio2API/internal/config"
+	"github.com/Mag1cFall/AIStudio2API/internal/orchestrator"
 )
 
 type runtimeAdmin struct {
 	lifecycle  context.Context
 	pool       *aistudio.AccountPool
 	store      *aistudio.AccountStore
-	service    *trackedService
-	requests   *requestRegistry
+	service    *orchestrator.Service
+	requests   *orchestrator.RequestRegistry
 	login      aistudio.IsolatedLoginDriver
-	workers    *accountWorkerManager
-	headers    *accountHeaderProvider
+	workers    *orchestrator.WorkerManager
+	headers    *orchestrator.HeaderProvider
 	configPath string
 	configMu   sync.RWMutex
 	config     config.Config
-}
-
-type requestRegistry struct {
-	mu          sync.Mutex
-	active      map[string]trackedRequest
-	logs        []api.AdminLog
-	subscribers map[chan api.AdminEvent]struct{}
-	console     chan api.AdminLog
-}
-
-type trackedRequest struct {
-	request api.AdminRequest
-	cancel  context.CancelFunc
 }
 
 type adminOperationError struct {
@@ -64,33 +51,18 @@ func (err *adminOperationError) ErrorCode() string {
 	return err.code
 }
 
-func newRuntimeAdmin(
-	lifecycle context.Context,
-	pool *aistudio.AccountPool,
-	store *aistudio.AccountStore,
-	service *trackedService,
-	registry *requestRegistry,
-	login aistudio.IsolatedLoginDriver,
-	workers *accountWorkerManager,
-	headers *accountHeaderProvider,
-	cfg config.Config,
-) *runtimeAdmin {
+func newRuntimeAdmin(engine *orchestrator.Engine) *runtimeAdmin {
 	return &runtimeAdmin{
-		lifecycle: lifecycle, pool: pool, store: store, service: service, requests: registry, login: login,
-		workers: workers, headers: headers,
-		configPath: ".env", config: cfg,
+		pool:       engine.Pool,
+		store:      engine.Store,
+		service:    engine.Service,
+		requests:   engine.Registry,
+		login:      engine.Login,
+		workers:    engine.Workers,
+		headers:    engine.Headers,
+		configPath: ".env",
+		config:     engine.Config,
 	}
-}
-
-func newRequestRegistry(ctx context.Context) *requestRegistry {
-	registry := &requestRegistry{
-		active:      make(map[string]trackedRequest),
-		logs:        make([]api.AdminLog, 0, 128),
-		subscribers: make(map[chan api.AdminEvent]struct{}),
-		console:     make(chan api.AdminLog, 256),
-	}
-	go registry.writeConsole(ctx)
-	return registry
 }
 
 func (admin *runtimeAdmin) Status(context.Context) (api.AdminStatus, error) {
@@ -115,7 +87,7 @@ func (admin *runtimeAdmin) Status(context.Context) (api.AdminStatus, error) {
 		Running:        running,
 		Ready:          running && counts.Ready+counts.Busy > 0,
 		Version:        buildVersion(),
-		ActiveRequests: admin.requests.count(),
+		ActiveRequests: admin.requests.Count(),
 		Accounts:       counts,
 	}, nil
 }
@@ -148,19 +120,24 @@ func (admin *runtimeAdmin) CreateAccount(ctx context.Context, input api.AccountI
 	}
 	defer os.RemoveAll(directory)
 	startedAt := time.Now()
-	admin.requests.log("auth", "INFO", "Account addition | 1/2 | Waiting for isolated login")
+	admin.requests.Log("auth", "INFO", "Account addition | 1/2 | Waiting for isolated login")
 	result, err := admin.login.Login(ctx, aistudio.IsolatedLoginRequest{
 		AccountID: "new", Directory: directory, Proxy: admin.effectiveProxy(accountConfig.Proxy),
 		Locale: accountConfig.Locale, Timezone: accountConfig.Timezone,
 	})
 	if err != nil {
-		admin.requests.log("auth", "ERROR", fmt.Sprintf(
+		admin.requests.Log("auth", "ERROR", fmt.Sprintf(
 			"Account addition failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return api.AdminAccount{}, err
 	}
-	admin.requests.log("auth", "INFO", "Account addition | 2/2 | Saving auth state")
+	if err := result.StorageState.SetAuthExtension(aistudio.AuthExtension{
+		Source: aistudio.AuthSource{Browser: "camoufox"},
+	}); err != nil {
+		return api.AdminAccount{}, err
+	}
+	admin.requests.Log("auth", "INFO", "Account addition | 2/2 | Saving auth state")
 	if _, err := aistudio.NewSigner().Sign(result.StorageState); err != nil {
 		return api.AdminAccount{}, fmt.Errorf("auth state cannot be used for AI Studio: %w", err)
 	}
@@ -175,16 +152,17 @@ func (admin *runtimeAdmin) CreateAccount(ctx context.Context, input api.AccountI
 		return api.AdminAccount{}, errors.Join(err, admin.store.Delete(account))
 	}
 	if err := admin.workers.Add(account); err != nil {
-		return api.AdminAccount{}, errors.Join(err, admin.headers.Remove(account.ID), admin.store.Delete(account))
+		_ = admin.headers.Remove(account.ID)
+		return api.AdminAccount{}, errors.Join(err, admin.store.Delete(account))
 	}
 	if err := admin.pool.Add(account); err != nil {
-		return api.AdminAccount{}, errors.Join(
-			err, admin.workers.Remove(account.ID), admin.headers.Remove(account.ID), admin.store.Delete(account),
-		)
+		_ = admin.workers.Remove(account.ID)
+		_ = admin.headers.Remove(account.ID)
+		return api.AdminAccount{}, errors.Join(err, admin.store.Delete(account))
 	}
-	admin.requests.log("auth", "INFO", fmt.Sprintf(
+	admin.requests.Log("auth", "INFO", fmt.Sprintf(
 		"Account addition completed | account=%s | elapsed=%s",
-		account.Config.Label, time.Since(startedAt).Round(time.Millisecond),
+		accountConfig.Label, time.Since(startedAt).Round(time.Millisecond),
 	))
 	admin.syncModelCache(ctx)
 	return admin.account(account.ID)
@@ -194,19 +172,25 @@ func (admin *runtimeAdmin) UpdateAccount(ctx context.Context, accountID string, 
 	if !strings.EqualFold(strings.TrimSpace(input.Label), strings.TrimSpace(accountID)) {
 		return api.AdminAccount{}, invalidAccount(fmt.Errorf("account email cannot be modified"))
 	}
-	accountConfig := aistudio.DefaultAccountConfig(strings.ToLower(strings.TrimSpace(accountID)))
-	accountConfig.Enabled = input.Enabled
-	accountConfig.Proxy = strings.TrimSpace(input.Proxy)
-	accountConfig.Locale = strings.TrimSpace(input.Locale)
-	accountConfig.Timezone = strings.TrimSpace(input.Timezone)
-	if err := accountConfig.Validate(); err != nil {
-		return api.AdminAccount{}, invalidAccount(err)
-	}
 	lease, err := admin.pool.AcquireAccount(ctx, accountID)
 	if err != nil {
 		return api.AdminAccount{}, accountOperationError(err)
 	}
 	account := lease.Account()
+	accountConfig := account.Config
+	accountConfig.Enabled = input.Enabled
+	accountConfig.Proxy = strings.TrimSpace(input.Proxy)
+	if locale := strings.TrimSpace(input.Locale); locale != "" {
+		accountConfig.Locale = locale
+	}
+	if timezone := strings.TrimSpace(input.Timezone); timezone != "" {
+		accountConfig.Timezone = timezone
+	}
+	if err := accountConfig.Validate(); err != nil {
+		_ = lease.Release()
+		return api.AdminAccount{}, invalidAccount(err)
+	}
+	account.Config = accountConfig
 	if err := lease.SaveConfig(accountConfig); err != nil {
 		return api.AdminAccount{}, errors.Join(err, lease.Release())
 	}
@@ -219,7 +203,7 @@ func (admin *runtimeAdmin) UpdateAccount(ctx context.Context, accountID string, 
 	if err := lease.Release(); err != nil {
 		return api.AdminAccount{}, err
 	}
-	admin.requests.log("auth", "INFO", "Account config updated | account="+accountConfig.Label)
+	admin.requests.Log("auth", "INFO", "Account config updated | account="+accountConfig.Label)
 	admin.syncModelCache(ctx)
 	return admin.account(account.ID)
 }
@@ -241,9 +225,44 @@ func (admin *runtimeAdmin) DeleteAccount(ctx context.Context, accountID string) 
 	if err := errors.Join(admin.workers.Remove(accountID), admin.headers.Remove(accountID)); err != nil {
 		return err
 	}
-	admin.requests.log("auth", "INFO", "Account deleted | account="+account.Label)
+	admin.requests.Log("auth", "INFO", "Account deleted | account="+account.Label)
 	admin.syncModelCache(ctx)
 	return nil
+}
+
+func (admin *runtimeAdmin) EnableAccount(ctx context.Context, accountID string) (api.AdminAccount, error) {
+	return admin.setAccountEnabled(ctx, accountID, true)
+}
+
+func (admin *runtimeAdmin) DisableAccount(ctx context.Context, accountID string) (api.AdminAccount, error) {
+	return admin.setAccountEnabled(ctx, accountID, false)
+}
+
+func (admin *runtimeAdmin) setAccountEnabled(ctx context.Context, accountID string, enabled bool) (api.AdminAccount, error) {
+	lease, err := admin.pool.AcquireAccount(ctx, accountID)
+	if err != nil {
+		return api.AdminAccount{}, accountOperationError(err)
+	}
+	account := lease.Account()
+	accountConfig := account.Config
+	accountConfig.Enabled = enabled
+	account.Config = accountConfig
+	if err := lease.SaveConfig(accountConfig); err != nil {
+		return api.AdminAccount{}, errors.Join(err, lease.Release())
+	}
+	if err := admin.workers.Update(account); err != nil {
+		return api.AdminAccount{}, errors.Join(err, lease.Release())
+	}
+	if err := lease.Release(); err != nil {
+		return api.AdminAccount{}, err
+	}
+	action := "disabled"
+	if enabled {
+		action = "enabled"
+	}
+	admin.requests.Log(account.Config.Label, "INFO", "Account "+action)
+	admin.syncModelCache(ctx)
+	return admin.account(account.ID)
 }
 
 func (admin *runtimeAdmin) LoginAccount(ctx context.Context, accountID string) (api.AdminAccount, error) {
@@ -264,16 +283,16 @@ func (admin *runtimeAdmin) LoginAccount(ctx context.Context, accountID string) (
 		return api.AdminAccount{}, errors.Join(err, lease.Release())
 	}
 	startedAt := time.Now()
-	admin.requests.log(account.Config.Label, "INFO", "Account login | 1/2 | Waiting for isolated login")
+	admin.requests.Log(account.Config.Label, "INFO", "Account login | 1/2 | Waiting for isolated login")
 	result, err := admin.login.Login(ctx, admin.loginRequest(account, directory))
 	if err != nil {
-		admin.requests.log(account.Config.Label, "ERROR", fmt.Sprintf(
+		admin.requests.Log(account.Config.Label, "ERROR", fmt.Sprintf(
 			"Account login failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return api.AdminAccount{}, errors.Join(err, lease.Release())
 	}
-	admin.requests.log(account.Config.Label, "INFO", "Account login | 2/2 | Saving auth state")
+	admin.requests.Log(account.Config.Label, "INFO", "Account login | 2/2 | Saving auth state")
 	if _, err := aistudio.NewSigner().Sign(result.StorageState); err != nil {
 		return api.AdminAccount{}, errors.Join(fmt.Errorf("auth state cannot be used for AI Studio: %w", err), lease.Release())
 	}
@@ -292,7 +311,7 @@ func (admin *runtimeAdmin) LoginAccount(ctx context.Context, accountID string) (
 	if err := lease.Release(); err != nil {
 		return api.AdminAccount{}, err
 	}
-	admin.requests.log(account.Config.Label, "INFO", fmt.Sprintf(
+	admin.requests.Log(account.Config.Label, "INFO", fmt.Sprintf(
 		"Account login completed | elapsed=%s",
 		time.Since(startedAt).Round(time.Millisecond),
 	))
@@ -307,10 +326,10 @@ func (admin *runtimeAdmin) VerifyAccount(ctx context.Context, accountID string) 
 	}
 	account := lease.Account()
 	startedAt := time.Now()
-	admin.requests.log(account.Config.Label, "INFO", "Account verification | Accessing AI Studio")
+	admin.requests.Log(account.Config.Label, "INFO", "Account verification | Accessing AI Studio")
 	verification, err := admin.login.Verify(ctx, admin.loginRequest(account, account.Directory), account.StorageState)
 	if err != nil {
-		admin.requests.log(account.Config.Label, "ERROR", fmt.Sprintf(
+		admin.requests.Log(account.Config.Label, "ERROR", fmt.Sprintf(
 			"Account verification failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
@@ -331,7 +350,7 @@ func (admin *runtimeAdmin) VerifyAccount(ctx context.Context, accountID string) 
 	if err := lease.Release(); err != nil {
 		return api.AdminAccount{}, err
 	}
-	admin.requests.log(account.Config.Label, "INFO", fmt.Sprintf(
+	admin.requests.Log(account.Config.Label, "INFO", fmt.Sprintf(
 		"Account verification completed | authenticated=%t | elapsed=%s",
 		verification.Authenticated, time.Since(startedAt).Round(time.Millisecond),
 	))
@@ -347,7 +366,7 @@ func (admin *runtimeAdmin) StartService(ctx context.Context) (api.AdminStatus, e
 			admin.publishRuntimeSnapshot(ctx, status)
 		}
 	})
-	if errors.Is(err, errServiceTransitioning) {
+	if errors.Is(err, orchestrator.ErrServiceTransitioning) {
 		return admin.Status(ctx)
 	}
 	if err != nil {
@@ -356,13 +375,13 @@ func (admin *runtimeAdmin) StartService(ctx context.Context) (api.AdminStatus, e
 			admin.publishRuntimeSnapshot(ctx, status)
 		}
 		if errors.Is(err, context.Canceled) && admin.service.State() == "STOPPED" {
-			admin.requests.log("service", "INFO", fmt.Sprintf(
+			admin.requests.Log("service", "INFO", fmt.Sprintf(
 				"Generation service startup canceled | elapsed=%s",
 				time.Since(startedAt).Round(time.Millisecond),
 			))
 			return status, statusErr
 		}
-		admin.requests.log("service", "ERROR", fmt.Sprintf(
+		admin.requests.Log("service", "ERROR", fmt.Sprintf(
 			"Generation service startup failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
@@ -374,7 +393,7 @@ func (admin *runtimeAdmin) StartService(ctx context.Context) (api.AdminStatus, e
 		return api.AdminStatus{}, err
 	}
 	if len(models) == 0 {
-		admin.requests.log("service", "ERROR", fmt.Sprintf(
+		admin.requests.Log("service", "ERROR", fmt.Sprintf(
 			"Generation service startup failed | elapsed=%s | error=no eligible accounts",
 			time.Since(startedAt).Round(time.Millisecond),
 		))
@@ -383,13 +402,13 @@ func (admin *runtimeAdmin) StartService(ctx context.Context) (api.AdminStatus, e
 		}
 	}
 	if started {
-		admin.requests.log("service", "INFO", fmt.Sprintf(
+		admin.requests.Log("service", "INFO", fmt.Sprintf(
 			"Generation service ready | models=%d | workers=%d/%d | elapsed=%s",
 			len(models), len(admin.workers.WarmAccountIDs()), admin.workers.PrewarmTarget(),
 			time.Since(startedAt).Round(time.Millisecond),
 		))
 	} else {
-		admin.requests.log("service", "INFO", fmt.Sprintf(
+		admin.requests.Log("service", "INFO", fmt.Sprintf(
 			"Generation service running | models=%d | workers=%d/%d",
 			len(models), len(admin.workers.WarmAccountIDs()), admin.workers.PrewarmTarget(),
 		))
@@ -403,25 +422,25 @@ func (admin *runtimeAdmin) StartService(ctx context.Context) (api.AdminStatus, e
 
 func (admin *runtimeAdmin) StopService(ctx context.Context) (api.AdminStatus, error) {
 	startedAt := time.Now()
-	admin.requests.log("service", "INFO", fmt.Sprintf(
+	admin.requests.Log("service", "INFO", fmt.Sprintf(
 		"Generation service stopping | workers=%d",
 		len(admin.workers.WarmAccountIDs()),
 	))
 	stopped, err := admin.service.Stop()
 	if err != nil {
-		admin.requests.log("service", "ERROR", fmt.Sprintf(
+		admin.requests.Log("service", "ERROR", fmt.Sprintf(
 			"Generation service stop failed | elapsed=%s | error=%s",
 			time.Since(startedAt).Round(time.Millisecond), strings.TrimSpace(err.Error()),
 		))
 		return api.AdminStatus{}, err
 	}
 	if stopped {
-		admin.requests.log("service", "INFO", fmt.Sprintf(
+		admin.requests.Log("service", "INFO", fmt.Sprintf(
 			"Generation service stopped | elapsed=%s",
 			time.Since(startedAt).Round(time.Millisecond),
 		))
 	} else {
-		admin.requests.log("service", "INFO", "Generation service is already stopped")
+		admin.requests.Log("service", "INFO", "Generation service is already stopped")
 	}
 	status, err := admin.Status(ctx)
 	if err == nil {
@@ -431,7 +450,7 @@ func (admin *runtimeAdmin) StopService(ctx context.Context) (api.AdminStatus, er
 }
 
 func (admin *runtimeAdmin) ClearLogs(context.Context) error {
-	admin.requests.clearLogs()
+	admin.requests.ClearLogs()
 	return nil
 }
 
@@ -450,7 +469,7 @@ func (admin *runtimeAdmin) RecordAccessStart(entry api.AccessLog) {
 			entry.Temperature, entry.TopP, entry.Thinking, entry.MaxOutputTokens,
 		)
 	}
-	admin.requests.log(source, "INFO", message)
+	admin.requests.Log(source, "INFO", message)
 }
 
 func (admin *runtimeAdmin) RecordAccessLog(entry api.AccessLog) {
@@ -495,7 +514,7 @@ func (admin *runtimeAdmin) RecordAccessLog(entry api.AccessLog) {
 	} else if entry.Status >= http.StatusBadRequest {
 		message += fmt.Sprintf("\nError: HTTP %d", entry.Status)
 	}
-	admin.requests.log(source, level, message)
+	admin.requests.Log(source, level, message)
 }
 
 func (admin *runtimeAdmin) syncModelCache(ctx context.Context) {
@@ -515,9 +534,9 @@ func (admin *runtimeAdmin) publishRuntimeSnapshot(ctx context.Context, status ap
 	if err != nil {
 		return
 	}
-	admin.requests.publish(api.AdminEvent{Type: "status", Data: status})
-	admin.requests.publish(api.AdminEvent{Type: "models", Data: map[string]any{"models": models}})
-	admin.requests.publish(api.AdminEvent{Type: "accounts", Data: map[string]any{"accounts": accounts}})
+	admin.requests.Publish(api.AdminEvent{Type: "status", Data: status})
+	admin.requests.Publish(api.AdminEvent{Type: "models", Data: map[string]any{"models": models}})
+	admin.requests.Publish(api.AdminEvent{Type: "accounts", Data: map[string]any{"accounts": accounts}})
 }
 
 func (admin *runtimeAdmin) account(accountID string) (api.AdminAccount, error) {
@@ -593,20 +612,32 @@ func (admin *runtimeAdmin) UpdateRuntimeConfig(_ context.Context, value api.Runt
 	if err != nil {
 		return api.RuntimeConfig{}, fmt.Errorf("invalid REQUEST_TIMEOUT: %w", err)
 	}
-	cfg := config.Config{
-		AuthStates: value.AuthStates, ListenAddr: value.ListenAddr, ProxyAPIKey: value.APIKey,
-		Proxy: value.Proxy, InitTimeout: initTimeout, RequestTimeout: requestTimeout,
-		WarmWorkerLimit: value.WarmWorkerLimit, WarmStartupConcurrency: value.WarmStartupConcurrency,
-		PerAccountConcurrency: value.PerAccountConcurrency,
-		TemporaryChat:         value.TemporaryChat,
-	}
-	if err := cfg.Save(admin.configPath); err != nil {
-		return api.RuntimeConfig{}, err
+	if err := config.ValidateProxy(value.Proxy); err != nil {
+		return api.RuntimeConfig{}, fmt.Errorf("invalid PROXY: %w", err)
 	}
 	admin.configMu.Lock()
+	cfg := admin.config
+	cfg.AuthStates = strings.TrimSpace(value.AuthStates)
+	cfg.ListenAddr = strings.TrimSpace(value.ListenAddr)
+	cfg.ProxyAPIKey = strings.TrimSpace(value.APIKey)
+	cfg.Proxy = strings.TrimSpace(value.Proxy)
+	cfg.InitTimeout = initTimeout
+	cfg.RequestTimeout = requestTimeout
+	cfg.WarmWorkerLimit = value.WarmWorkerLimit
+	cfg.WarmStartupConcurrency = value.WarmStartupConcurrency
+	cfg.PerAccountConcurrency = value.PerAccountConcurrency
+	cfg.TemporaryChat = value.TemporaryChat
+	if err := cfg.Validate(); err != nil {
+		admin.configMu.Unlock()
+		return api.RuntimeConfig{}, err
+	}
+	if err := cfg.Save(admin.configPath); err != nil {
+		admin.configMu.Unlock()
+		return api.RuntimeConfig{}, fmt.Errorf("save %s: %w", admin.configPath, err)
+	}
 	admin.config = cfg
 	admin.configMu.Unlock()
-	admin.requests.log("service", "INFO", "Service config saved | Effective after restart")
+	admin.requests.Log("service", "INFO", "Service config saved | Effective after restart")
 	return runtimeConfigDTO(cfg), nil
 }
 
@@ -653,17 +684,23 @@ func (admin *runtimeAdmin) Cooldowns(context.Context) ([]api.AdminCooldown, erro
 }
 
 func (admin *runtimeAdmin) Requests(context.Context) ([]api.AdminRequest, error) {
-	return admin.requests.list(), nil
+	return admin.requests.List(), nil
 }
 
 func (admin *runtimeAdmin) CancelRequest(_ context.Context, id string) error {
-	return admin.requests.cancel(id)
+	if !admin.requests.Cancel(id) {
+		return &adminOperationError{
+			status: http.StatusNotFound, code: "request_not_found",
+			message: fmt.Sprintf("active request not found: %s", id),
+		}
+	}
+	return nil
 }
 
 func (admin *runtimeAdmin) Events(ctx context.Context) (<-chan api.AdminEvent, error) {
 	eventCtx, cancel := context.WithCancel(ctx)
 	stopLifecycle := context.AfterFunc(admin.lifecycle, cancel)
-	live := admin.requests.subscribe(eventCtx)
+	live := admin.requests.Subscribe(eventCtx)
 	models, err := admin.service.Models(eventCtx)
 	if err != nil {
 		stopLifecycle()
@@ -688,7 +725,7 @@ func (admin *runtimeAdmin) Events(ctx context.Context) (<-chan api.AdminEvent, e
 		cancel()
 		return nil, err
 	}
-	logs := admin.requests.logsSnapshot()
+	logs := admin.requests.LogsSnapshot()
 	events := make(chan api.AdminEvent, 16)
 	go func() {
 		defer stopLifecycle()
@@ -703,7 +740,7 @@ func (admin *runtimeAdmin) Events(ctx context.Context) (<-chan api.AdminEvent, e
 			initial = append(initial, api.AdminEvent{Type: "log", Data: entry})
 		}
 		initial = append(initial, api.AdminEvent{Type: "cooldowns", Data: cooldowns})
-		for _, request := range admin.requests.list() {
+		for _, request := range admin.requests.List() {
 			initial = append(initial, api.AdminEvent{Type: "request", Data: request})
 		}
 		for _, event := range initial {
@@ -763,181 +800,11 @@ func (admin *runtimeAdmin) requestUpdates(ctx context.Context, request api.Admin
 	return updates, nil
 }
 
-func (registry *requestRegistry) start(request aistudio.GenerateRequest, cancel context.CancelFunc) {
-	tracked := trackedRequest{
-		request: api.AdminRequest{
-			ID: request.ID, Model: request.Model, AccountID: request.AccountID,
-			State: "queued", StartedAt: time.Now().UTC(),
-		},
-		cancel: cancel,
-	}
-	registry.mu.Lock()
-	registry.active[request.ID] = tracked
-	registry.publishLocked(api.AdminEvent{Type: "request", Data: tracked.request})
-	registry.mu.Unlock()
-}
-
-func (registry *requestRegistry) markRunning(id string, accountID string, accountLabel string) {
-	registry.mu.Lock()
-	tracked, exists := registry.active[id]
-	if exists {
-		tracked.request.AccountID = accountID
-		tracked.request.AccountLabel = accountLabel
-		tracked.request.State = "running"
-		registry.active[id] = tracked
-		registry.publishLocked(api.AdminEvent{Type: "request", Data: tracked.request})
-	}
-	registry.mu.Unlock()
-}
-
-func (registry *requestRegistry) finish(id string, state string, requestErr error) {
-	registry.mu.Lock()
-	tracked, exists := registry.active[id]
-	if exists {
-		delete(registry.active, id)
-		tracked.request.State = state
-		registry.publishLocked(api.AdminEvent{Type: "request", Data: tracked.request})
-	}
-	registry.mu.Unlock()
-}
-
-func (registry *requestRegistry) list() []api.AdminRequest {
-	registry.mu.Lock()
-	requests := make([]api.AdminRequest, 0, len(registry.active))
-	for _, tracked := range registry.active {
-		requests = append(requests, tracked.request)
-	}
-	registry.mu.Unlock()
-	sort.Slice(requests, func(left int, right int) bool {
-		return requests[left].StartedAt.Before(requests[right].StartedAt)
-	})
-	return requests
-}
-
-func (registry *requestRegistry) count() int {
-	registry.mu.Lock()
-	count := len(registry.active)
-	registry.mu.Unlock()
-	return count
-}
-
-func (registry *requestRegistry) cancel(id string) error {
-	registry.mu.Lock()
-	tracked, exists := registry.active[id]
-	registry.mu.Unlock()
-	if !exists {
-		return &adminOperationError{
-			status: http.StatusNotFound, code: "request_not_found",
-			message: fmt.Sprintf("active request not found: %s", id),
-		}
-	}
-	tracked.cancel()
-	return nil
-}
-
 func logDuration(value time.Duration) string {
 	if value <= 0 {
 		return "-"
 	}
 	return value.Round(time.Millisecond).String()
-}
-
-func (registry *requestRegistry) cancelAll() {
-	registry.mu.Lock()
-	cancels := make([]context.CancelFunc, 0, len(registry.active))
-	for _, tracked := range registry.active {
-		cancels = append(cancels, tracked.cancel)
-	}
-	registry.mu.Unlock()
-	for _, cancel := range cancels {
-		cancel()
-	}
-}
-
-func (registry *requestRegistry) log(source string, level string, message string) {
-	registry.mu.Lock()
-	entry := registry.appendLogLocked(source, level, message)
-	registry.mu.Unlock()
-	select {
-	case registry.console <- entry:
-	default:
-	}
-}
-
-func (registry *requestRegistry) appendLogLocked(source string, level string, message string) api.AdminLog {
-	entry := api.AdminLog{Time: time.Now().UTC(), Level: level, Source: source, Message: message}
-	registry.logs = append(registry.logs, entry)
-	if len(registry.logs) >= 2200 {
-		copy(registry.logs, registry.logs[len(registry.logs)-2000:])
-		registry.logs = registry.logs[:2000]
-	}
-	registry.publishLocked(api.AdminEvent{Type: "log", Data: entry})
-	return entry
-}
-
-func (registry *requestRegistry) writeConsole(ctx context.Context) {
-	for {
-		select {
-		case entry := <-registry.console:
-			switch strings.ToUpper(entry.Level) {
-			case "ERROR":
-				slog.Error(entry.Message, "source", entry.Source)
-			case "WARN":
-				slog.Warn(entry.Message, "source", entry.Source)
-			default:
-				slog.Info(entry.Message, "source", entry.Source)
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
-}
-
-func (registry *requestRegistry) logsSnapshot() []api.AdminLog {
-	registry.mu.Lock()
-	logs := append([]api.AdminLog(nil), registry.logs...)
-	registry.mu.Unlock()
-	return logs
-}
-
-func (registry *requestRegistry) clearLogs() {
-	registry.mu.Lock()
-	registry.logs = registry.logs[:0]
-	registry.mu.Unlock()
-}
-
-func (registry *requestRegistry) subscribe(ctx context.Context) <-chan api.AdminEvent {
-	events := make(chan api.AdminEvent, 256)
-	registry.mu.Lock()
-	registry.subscribers[events] = struct{}{}
-	registry.mu.Unlock()
-	go func() {
-		<-ctx.Done()
-		registry.mu.Lock()
-		if _, ok := registry.subscribers[events]; ok {
-			delete(registry.subscribers, events)
-			close(events)
-		}
-		registry.mu.Unlock()
-	}()
-	return events
-}
-
-func (registry *requestRegistry) publishLocked(event api.AdminEvent) {
-	for subscriber := range registry.subscribers {
-		select {
-		case subscriber <- event:
-		default:
-			delete(registry.subscribers, subscriber)
-			close(subscriber)
-		}
-	}
-}
-
-func (registry *requestRegistry) publish(event api.AdminEvent) {
-	registry.mu.Lock()
-	registry.publishLocked(event)
-	registry.mu.Unlock()
 }
 
 func buildVersion() string {

@@ -137,7 +137,7 @@ func loadAndMergeConfig(opts cliOptions) (config.Config, error) {
 }
 
 func runServer(ctx context.Context, cfg config.Config, options cliOptions, service aistudio.Service, admin *runtimeAdmin) error {
-	admin.requests.log("service", "INFO", fmt.Sprintf("App startup | 4/4 | Listening HTTP | addr=%s", cfg.ListenAddr))
+	admin.requests.Log("service", "INFO", fmt.Sprintf("App startup | 4/4 | Listening HTTP | addr=%s", cfg.ListenAddr))
 
 	listener, err := net.Listen("tcp", cfg.ListenAddr)
 	if err != nil {
@@ -164,13 +164,13 @@ func runServer(ctx context.Context, cfg config.Config, options cliOptions, servi
 	}()
 
 	addr := resolveBrowserAddress(listener.Addr().String())
-	admin.requests.log("service", "INFO", fmt.Sprintf("Admin service ready | addr=http://%s", addr))
+	admin.requests.Log("service", "INFO", fmt.Sprintf("Admin service ready | addr=http://%s", addr))
 
 	if options.openUI {
 		if err := openSystemBrowser("http://" + addr); err != nil {
 			slog.Warn("Failed to open browser automatically", "error", err)
 		} else {
-			admin.requests.log("service", "INFO", "Admin UI opened | addr=http://"+addr)
+			admin.requests.Log("service", "INFO", "Admin UI opened | addr=http://"+addr)
 		}
 	}
 
