@@ -499,8 +499,10 @@ func ObserveVideoRequest(status string) {
 	VideoRequestsTotal.WithLabelValues(st).Inc()
 }
 
-// HTTPMiddleware wraps an http.Handler to automatically track HTTP metrics.
 func HTTPMiddleware(next http.Handler) http.Handler {
+	if next == nil {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		HTTPRequestsInFlight.Inc()
 		defer HTTPRequestsInFlight.Dec()
@@ -515,7 +517,16 @@ func HTTPMiddleware(next http.Handler) http.Handler {
 			status = http.StatusOK
 		}
 
-		ObserveHTTPRequest(r.Method, r.URL.Path, status, duration, wrapped.written)
+		path := ""
+		method := ""
+		if r != nil {
+			method = r.Method
+			if r.URL != nil {
+				path = r.URL.Path
+			}
+		}
+
+		ObserveHTTPRequest(method, path, status, duration, wrapped.written)
 	})
 }
 
@@ -525,31 +536,57 @@ type responseWriterTracker struct {
 	written int
 }
 
+func (w *responseWriterTracker) Header() http.Header {
+	if w != nil && w.ResponseWriter != nil {
+		return w.ResponseWriter.Header()
+	}
+	return make(http.Header)
+}
+
 func (w *responseWriterTracker) WriteHeader(status int) {
+	if w == nil {
+		return
+	}
 	if w.status == 0 {
 		w.status = status
 	}
-	w.ResponseWriter.WriteHeader(status)
+	if w.ResponseWriter != nil {
+		w.ResponseWriter.WriteHeader(status)
+	}
 }
 
 func (w *responseWriterTracker) Write(b []byte) (int, error) {
+	if w == nil {
+		return len(b), nil
+	}
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	n, err := w.ResponseWriter.Write(b)
-	w.written += n
-	return n, err
+	if w.ResponseWriter != nil {
+		n, err := w.ResponseWriter.Write(b)
+		w.written += n
+		return n, err
+	}
+	return len(b), nil
 }
 
 func (w *responseWriterTracker) Flush() {
+	if w == nil {
+		return
+	}
 	if w.status == 0 {
 		w.status = http.StatusOK
 	}
-	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
+	if w.ResponseWriter != nil {
+		if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+			flusher.Flush()
+		}
 	}
 }
 
 func (w *responseWriterTracker) Unwrap() http.ResponseWriter {
+	if w == nil {
+		return nil
+	}
 	return w.ResponseWriter
 }

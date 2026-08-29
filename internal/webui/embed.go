@@ -73,7 +73,7 @@ func (handler *spaHandler) ServeHTTP(writer http.ResponseWriter, request *http.R
 
 // reservedPath 判断路径是否属于服务 API
 func reservedPath(requestPath string) bool {
-	for _, prefix := range []string{"/api", "/v1", "/v1beta", "/health"} {
+	for _, prefix := range []string{"/api", "/v1", "/v1beta", "/health", "/metrics"} {
 		if requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/") {
 			return true
 		}

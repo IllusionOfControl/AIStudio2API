@@ -24,7 +24,7 @@ type UpstreamActivity struct {
 }
 
 func (activity *UpstreamActivity) observe(count int) {
-	if count <= 0 {
+	if activity == nil || count <= 0 {
 		return
 	}
 	now := time.Now().UnixNano()
@@ -61,6 +61,9 @@ func newRequestPreparationTiming(startedAt time.Time) *RequestPreparationTiming 
 }
 
 func (timing *RequestPreparationTiming) observe(phase aistudio.RequestPhase) {
+	if timing == nil {
+		return
+	}
 	timing.mu.Lock()
 	defer timing.mu.Unlock()
 	if phase == timing.phase {
@@ -73,6 +76,9 @@ func (timing *RequestPreparationTiming) observe(phase aistudio.RequestPhase) {
 }
 
 func (timing *RequestPreparationTiming) snapshot(now time.Time) (string, time.Duration, time.Duration) {
+	if timing == nil {
+		return "stream established", 0, 0
+	}
 	timing.mu.Lock()
 	defer timing.mu.Unlock()
 	waa := timing.waa
@@ -95,6 +101,9 @@ func (timing *RequestPreparationTiming) snapshot(now time.Time) (string, time.Du
 }
 
 func (timing *RequestPreparationTiming) finishPhaseLocked(now time.Time) {
+	if timing == nil {
+		return
+	}
 	elapsed := now.Sub(timing.phaseStarted)
 	switch timing.phase {
 	case aistudio.RequestPhasePreparingWAA:
@@ -115,6 +124,9 @@ type GenerationPerformance struct {
 }
 
 func (service *Service) observePerformance(accountID string, model string, firstEvent time.Duration) {
+	if service == nil {
+		return
+	}
 	accountID = strings.TrimSpace(accountID)
 	model = strings.TrimPrefix(strings.TrimSpace(model), "models/")
 	if accountID == "" || model == "" || firstEvent <= 0 {
@@ -288,6 +300,9 @@ func (registry *RequestRegistry) Subscribe(ctx context.Context) <-chan api.Admin
 
 // Start tracks a newly queued generation request.
 func (registry *RequestRegistry) Start(request aistudio.GenerateRequest, cancel context.CancelFunc) {
+	if registry == nil {
+		return
+	}
 	tracked := TrackedRequest{
 		Request: api.AdminRequest{
 			ID: request.ID, Model: request.Model, AccountID: request.AccountID,
@@ -301,7 +316,6 @@ func (registry *RequestRegistry) Start(request aistudio.GenerateRequest, cancel 
 	registry.mu.Unlock()
 	metrics.IncActiveGeneration(request.Model)
 }
-
 // MarkRunning marks a pending request as running on a specific account.
 func (registry *RequestRegistry) MarkRunning(id string, accountID string, accountLabel string) {
 	registry.mu.Lock()
@@ -318,6 +332,9 @@ func (registry *RequestRegistry) MarkRunning(id string, accountID string, accoun
 
 // Finish records the completion of a tracked request.
 func (registry *RequestRegistry) Finish(id string, state string, requestErr error) {
+	if registry == nil {
+		return
+	}
 	registry.mu.Lock()
 	tracked, exists := registry.active[id]
 	if exists {

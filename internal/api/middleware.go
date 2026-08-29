@@ -217,21 +217,21 @@ func (metadata *accessLogMetadata) snapshot() accessLogSnapshot {
 
 // SetAccessLogFirstEvent 写入首个上游语义事件耗时
 func SetAccessLogFirstEvent(ctx context.Context, firstEvent time.Duration) {
-	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
 		metadata.setFirstEvent(firstEvent)
 	}
 }
 
 // SetAccessLogGenerationConfig 写入生成请求采用的参数
 func SetAccessLogGenerationConfig(ctx context.Context, config aistudio.GenerationConfig) {
-	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
 		metadata.setGenerationConfig(config)
 	}
 }
 
 // StartAccessLog 立即写入已经完成解析的请求开始记录
 func StartAccessLog(ctx context.Context) {
-	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
 		metadata.start(true)
 	}
 }
@@ -262,7 +262,7 @@ func formatLogThinking(config aistudio.GenerationConfig) string {
 
 // SetAccessLogTarget 写入请求实际使用的模型与账户
 func SetAccessLogTarget(ctx context.Context, model string, account string) {
-	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
 		metadata.setTarget(model, account)
 	}
 }
@@ -272,14 +272,14 @@ func SetAccessLogError(ctx context.Context, err error) {
 	if err == nil {
 		return
 	}
-	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
 		metadata.setRequestError(err)
 	}
 }
 
 // SetAccessLogFinishReason 写入生成请求的上游终止原因
 func SetAccessLogFinishReason(ctx context.Context, reason string) {
-	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
 		metadata.setFinishReason(reason)
 	}
 }
@@ -306,7 +306,15 @@ func SetAccessLogGenerationResult(
 func requestLoggingMiddleware(admin AdminService, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		metadata := &accessLogMetadata{admin: admin, method: r.Method, path: r.URL.Path}
+		reqPath := ""
+		reqMethod := ""
+		if r != nil {
+			reqMethod = r.Method
+			if r.URL != nil {
+				reqPath = r.URL.Path
+			}
+		}
+		metadata := &accessLogMetadata{admin: admin, method: reqMethod, path: reqPath}
 		writer := &accessLogResponseWriter{ResponseWriter: w, metadata: metadata}
 		request := r.WithContext(context.WithValue(r.Context(), accessLogContextKey{}, metadata))
 		next.ServeHTTP(writer, request)
@@ -329,18 +337,18 @@ func requestLoggingMiddleware(admin AdminService, next http.Handler) http.Handle
 				ReasoningTokens: snapshot.reasoningTokens,
 				Temperature:     snapshot.temperature, TopP: snapshot.topP,
 				Thinking: snapshot.thinking, MaxOutputTokens: snapshot.maxOutputTokens,
-				Method: r.Method, Path: r.URL.Path, Model: snapshot.model, Account: snapshot.account,
+				Method: reqMethod, Path: reqPath, Model: snapshot.model, Account: snapshot.account,
 				FinishReason: snapshot.finishReason, Error: snapshot.requestErr,
 				Canceled: snapshot.canceled, Generation: snapshot.generation,
 			})
 		}
 
 		protocol := "unknown"
-		if strings.HasPrefix(r.URL.Path, "/v1/messages") {
+		if strings.HasPrefix(reqPath, "/v1/messages") {
 			protocol = "anthropic"
-		} else if strings.HasPrefix(r.URL.Path, "/v1/") {
+		} else if strings.HasPrefix(reqPath, "/v1/") {
 			protocol = "openai"
-		} else if strings.HasPrefix(r.URL.Path, "/v1beta/") {
+		} else if strings.HasPrefix(reqPath, "/v1beta/") {
 			protocol = "gemini"
 		}
 
@@ -380,8 +388,17 @@ func requestLoggingMiddleware(admin AdminService, next http.Handler) http.Handle
 }
 
 func setAccessLogResponseError(w http.ResponseWriter, message string) {
-	if writer, ok := w.(interface{ setError(string) }); ok {
-		writer.setError(message)
+	cur := w
+	for cur != nil {
+		if writer, ok := cur.(interface{ setError(string) }); ok {
+			writer.setError(message)
+			return
+		}
+		if u, ok := cur.(interface{ Unwrap() http.ResponseWriter }); ok {
+			cur = u.Unwrap()
+		} else {
+			break
+		}
 	}
 }
 
