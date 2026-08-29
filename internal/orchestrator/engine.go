@@ -16,6 +16,7 @@ import (
 
 // Engine is the central composition root connecting pool, storage, workers, and services.
 type Engine struct {
+	Lifecycle context.Context
 	Service   *Service
 	Pool      *aistudio.AccountPool
 	Store     *aistudio.AccountStore
@@ -111,6 +112,7 @@ func NewEngine(ctx context.Context, cfg config.Config) (*Engine, error) {
 	}
 
 	return &Engine{
+		Lifecycle: ctx,
 		Service:   service,
 		Pool:      pool,
 		Store:     store,

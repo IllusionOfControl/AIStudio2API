@@ -53,6 +53,7 @@ func (err *adminOperationError) ErrorCode() string {
 
 func newRuntimeAdmin(engine *orchestrator.Engine) *runtimeAdmin {
 	return &runtimeAdmin{
+		lifecycle:  engine.Lifecycle,
 		pool:       engine.Pool,
 		store:      engine.Store,
 		service:    engine.Service,
@@ -699,36 +700,44 @@ func (admin *runtimeAdmin) CancelRequest(_ context.Context, id string) error {
 
 func (admin *runtimeAdmin) Events(ctx context.Context) (<-chan api.AdminEvent, error) {
 	eventCtx, cancel := context.WithCancel(ctx)
-	stopLifecycle := context.AfterFunc(admin.lifecycle, cancel)
+	var stopLifecycle func() bool
+	if admin.lifecycle != nil {
+		stopLifecycle = context.AfterFunc(admin.lifecycle, cancel)
+	}
+	deferStopLifecycle := func() {
+		if stopLifecycle != nil {
+			stopLifecycle()
+		}
+	}
 	live := admin.requests.Subscribe(eventCtx)
 	models, err := admin.service.Models(eventCtx)
 	if err != nil {
-		stopLifecycle()
+		deferStopLifecycle()
 		cancel()
 		return nil, err
 	}
 	status, err := admin.Status(eventCtx)
 	if err != nil {
-		stopLifecycle()
+		deferStopLifecycle()
 		cancel()
 		return nil, err
 	}
 	accounts, err := admin.Accounts(eventCtx)
 	if err != nil {
-		stopLifecycle()
+		deferStopLifecycle()
 		cancel()
 		return nil, err
 	}
 	cooldowns, err := admin.Cooldowns(eventCtx)
 	if err != nil {
-		stopLifecycle()
+		deferStopLifecycle()
 		cancel()
 		return nil, err
 	}
 	logs := admin.requests.LogsSnapshot()
 	events := make(chan api.AdminEvent, 16)
 	go func() {
-		defer stopLifecycle()
+		defer deferStopLifecycle()
 		defer cancel()
 		defer close(events)
 		initial := []api.AdminEvent{
