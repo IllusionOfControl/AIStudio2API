@@ -11,6 +11,7 @@ import (
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 	"github.com/Mag1cFall/AIStudio2API/internal/api"
+	"github.com/Mag1cFall/AIStudio2API/internal/metrics"
 )
 
 var (
@@ -239,11 +240,13 @@ func (service *Service) generateWithRetry(
 			break
 		}
 		if recoverWorker {
+			metrics.ObserveRetry(modelID, "worker_recovery")
 			service.requests.Log(accountLabel, "WARN", fmt.Sprintf(
 				"WAA worker rescheduled | model=%s | replaying current request", modelID,
 			))
 			continue
 		}
+		metrics.ObserveRetry(modelID, "account_switch")
 		switchMessage := fmt.Sprintf(
 			"Account switched | model=%s\nReason: %s",
 			modelID, strings.TrimSpace(err.Error()),
@@ -251,7 +254,6 @@ func (service *Service) generateWithRetry(
 		service.requests.Log(accountLabel, "WARN", switchMessage)
 	}
 	if err != nil {
-		api.SetAccessLogError(requestCtx, err)
 		service.requests.Finish(request.ID, finalRequestState(err), err)
 		select {
 		case destination <- aistudio.Event{Kind: aistudio.EventError, Err: err}:
@@ -454,6 +456,7 @@ func (service *Service) forwardEvents(
 			case <-stall:
 				stalled = true
 				stall = nil
+				metrics.ObserveStreamStall(modelID, accountLabel)
 				service.requests.Log(accountLabel, "WARN", fmt.Sprintf(
 					"Event stream stalled | model=%s | elapsed=%s | last_event=%s | reasoning=%d | content=%d | %s",
 					modelID, streamStallThreshold, lastEventKind, reasoningEvents, contentEvents,
@@ -503,6 +506,9 @@ func (service *Service) forwardEvents(
 			if event.Usage != nil {
 				outputTokens = event.Usage.OutputTokens
 				reasoningTokens = event.Usage.ReasoningTokens
+				if event.Usage.InputTokens > 0 {
+					api.SetAccessLogInputTokens(requestCtx, event.Usage.InputTokens)
+				}
 			}
 		}
 		api.SetAccessLogTarget(requestCtx, event.ProviderModel, lease.Account().Config.Label)

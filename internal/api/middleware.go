@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
+	"github.com/Mag1cFall/AIStudio2API/internal/metrics"
 )
 
 type accessLogContextKey struct{}
@@ -33,6 +34,7 @@ type accessLogMetadata struct {
 	firstEvent      time.Duration
 	firstContent    time.Duration
 	contentChars    int
+	inputTokens     int64
 	outputTokens    int64
 	reasoningTokens int64
 	temperature     string
@@ -52,6 +54,7 @@ type accessLogSnapshot struct {
 	firstEvent      time.Duration
 	firstContent    time.Duration
 	contentChars    int
+	inputTokens     int64
 	outputTokens    int64
 	reasoningTokens int64
 	temperature     string
@@ -172,6 +175,11 @@ func (metadata *accessLogMetadata) setGenerationResult(
 	metadata.mu.Unlock()
 }
 
+func (metadata *accessLogMetadata) setInputTokens(inputTokens int64) {
+	metadata.mu.Lock()
+	metadata.inputTokens = inputTokens
+	metadata.mu.Unlock()
+}
 func (metadata *accessLogMetadata) setGenerationConfig(config aistudio.GenerationConfig) {
 	metadata.mu.Lock()
 	metadata.generation = true
@@ -198,8 +206,9 @@ func (metadata *accessLogMetadata) snapshot() accessLogSnapshot {
 		requestErr: metadata.err, canceled: metadata.canceled,
 		failureStatus: metadata.failureStatus,
 		firstEvent:    metadata.firstEvent, firstContent: metadata.firstContent, contentChars: metadata.contentChars,
-		outputTokens: metadata.outputTokens, reasoningTokens: metadata.reasoningTokens,
-		temperature: metadata.temperature, topP: metadata.topP,
+		inputTokens: metadata.inputTokens, outputTokens: metadata.outputTokens,
+		reasoningTokens: metadata.reasoningTokens,
+		temperature:     metadata.temperature, topP: metadata.topP,
 		thinking: metadata.thinking, maxOutputTokens: metadata.maxOutputTokens,
 	}
 	metadata.mu.Unlock()
@@ -275,6 +284,13 @@ func SetAccessLogFinishReason(ctx context.Context, reason string) {
 	}
 }
 
+// SetAccessLogInputTokens 写入请求的输入 token 用量
+func SetAccessLogInputTokens(ctx context.Context, inputTokens int64) {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
+		metadata.setInputTokens(inputTokens)
+	}
+}
+
 // SetAccessLogGenerationResult 写入生成流的完成摘要
 func SetAccessLogGenerationResult(
 	ctx context.Context,
@@ -283,11 +299,10 @@ func SetAccessLogGenerationResult(
 	outputTokens int64,
 	reasoningTokens int64,
 ) {
-	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok {
+	if metadata, ok := ctx.Value(accessLogContextKey{}).(*accessLogMetadata); ok && metadata != nil {
 		metadata.setGenerationResult(firstContent, contentChars, outputTokens, reasoningTokens)
 	}
 }
-
 func requestLoggingMiddleware(admin AdminService, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
@@ -318,6 +333,48 @@ func requestLoggingMiddleware(admin AdminService, next http.Handler) http.Handle
 				FinishReason: snapshot.finishReason, Error: snapshot.requestErr,
 				Canceled: snapshot.canceled, Generation: snapshot.generation,
 			})
+		}
+
+		protocol := "unknown"
+		if strings.HasPrefix(r.URL.Path, "/v1/messages") {
+			protocol = "anthropic"
+		} else if strings.HasPrefix(r.URL.Path, "/v1/") {
+			protocol = "openai"
+		} else if strings.HasPrefix(r.URL.Path, "/v1beta/") {
+			protocol = "gemini"
+		}
+
+		genStatus := "success"
+		if status >= http.StatusBadRequest {
+			genStatus = "error"
+		}
+		if snapshot.canceled {
+			genStatus = "canceled"
+		}
+
+		if snapshot.generation || snapshot.model != "" {
+			metrics.ObserveGenerationRequest(snapshot.model, protocol, snapshot.firstEvent > 0, genStatus, time.Since(started))
+			if snapshot.firstContent > 0 {
+				metrics.ObserveTimeToFirstToken(snapshot.model, snapshot.account, snapshot.firstContent)
+			}
+			if snapshot.firstEvent > 0 {
+				metrics.ObserveTimeToFirstEvent(snapshot.model, snapshot.account, snapshot.firstEvent)
+			}
+			if snapshot.inputTokens > 0 {
+				metrics.ObserveTokens("prompt", snapshot.model, snapshot.account, snapshot.inputTokens)
+			}
+			if snapshot.outputTokens > 0 {
+				metrics.ObserveTokens("completion", snapshot.model, snapshot.account, snapshot.outputTokens)
+			}
+			if snapshot.reasoningTokens > 0 {
+				metrics.ObserveTokens("reasoning", snapshot.model, snapshot.account, snapshot.reasoningTokens)
+			}
+			if snapshot.contentChars > 0 {
+				metrics.ObserveGeneratedChars(snapshot.model, snapshot.account, snapshot.contentChars)
+			}
+			if snapshot.finishReason != "" {
+				metrics.ObserveFinishReason(snapshot.finishReason, snapshot.model)
+			}
 		}
 	})
 }

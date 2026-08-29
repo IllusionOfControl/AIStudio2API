@@ -192,6 +192,7 @@ func runServer(ctx context.Context, cfg config.Config, options cliOptions, servi
 func buildRootMux(apiHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/health", apiHandler)
+	mux.Handle("/metrics", apiHandler)
 	mux.Handle("/api/", apiHandler)
 	mux.Handle("/v1/", apiHandler)
 	mux.Handle("/v1beta/", apiHandler)

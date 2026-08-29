@@ -12,6 +12,7 @@ import (
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 	"github.com/Mag1cFall/AIStudio2API/internal/api"
+	"github.com/Mag1cFall/AIStudio2API/internal/metrics"
 )
 
 const streamStallThreshold = 15 * time.Second
@@ -29,6 +30,7 @@ func (activity *UpstreamActivity) observe(count int) {
 	now := time.Now().UnixNano()
 	activity.lastNano.Store(now)
 	activity.bytes.Add(int64(count))
+	metrics.AddUpstreamNetworkBytes("received", int64(count))
 }
 
 func (activity *UpstreamActivity) logFields(now time.Time) string {
@@ -97,8 +99,12 @@ func (timing *RequestPreparationTiming) finishPhaseLocked(now time.Time) {
 	switch timing.phase {
 	case aistudio.RequestPhasePreparingWAA:
 		timing.waa += elapsed
+		metrics.ObservePreparationDuration("waa", elapsed)
 	case aistudio.RequestPhaseSendingUpstream:
 		timing.responseHeader += elapsed
+		metrics.ObservePreparationDuration("response_header", elapsed)
+	default:
+		metrics.ObservePreparationDuration(string(timing.phase), elapsed)
 	}
 }
 
@@ -120,6 +126,7 @@ func (service *Service) observePerformance(accountID string, model string, first
 	}
 	service.performance[accountID][model] = GenerationPerformance{firstEvent: firstEvent, observedAt: time.Now()}
 	service.performanceMu.Unlock()
+	metrics.SetLatestPerformance(accountID, model, firstEvent)
 }
 
 func (service *Service) preferFast(accountIDs []string, model string) []string {
@@ -292,6 +299,7 @@ func (registry *RequestRegistry) Start(request aistudio.GenerateRequest, cancel 
 	registry.active[request.ID] = tracked
 	registry.publishLocked(api.AdminEvent{Type: "request", Data: tracked.Request})
 	registry.mu.Unlock()
+	metrics.IncActiveGeneration(request.Model)
 }
 
 // MarkRunning marks a pending request as running on a specific account.
@@ -318,6 +326,9 @@ func (registry *RequestRegistry) Finish(id string, state string, requestErr erro
 		registry.publishLocked(api.AdminEvent{Type: "request", Data: tracked.Request})
 	}
 	registry.mu.Unlock()
+	if exists {
+		metrics.DecActiveGeneration(tracked.Request.Model)
+	}
 }
 
 // List returns a sorted list of all active requests.

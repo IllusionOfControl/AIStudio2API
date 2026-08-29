@@ -15,6 +15,7 @@ import (
 	"time"
 
 	appconfig "github.com/Mag1cFall/AIStudio2API/internal/config"
+	"github.com/Mag1cFall/AIStudio2API/internal/metrics"
 	"github.com/gofrs/flock"
 )
 
@@ -1135,6 +1136,7 @@ func (p *AccountPool) MarkCooldown(accountID string, modelID string, until time.
 	}
 	account.runtime = runtimeState
 	p.notifyLocked()
+	metrics.ObserveAccountCooldown(account.Config.Label, modelID, reason)
 	return nil
 }
 
@@ -1256,6 +1258,11 @@ func (p *AccountPool) Status() []AccountStatus {
 		}
 		statuses = append(statuses, status)
 	}
+	counts := make(map[string]int)
+	for _, st := range statuses {
+		counts[string(st.State)]++
+	}
+	metrics.UpdateAccountStates(counts)
 	return statuses
 }
 

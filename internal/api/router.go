@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
+	"github.com/Mag1cFall/AIStudio2API/internal/metrics"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Config 定义公开 API 服务配置
@@ -53,10 +55,11 @@ func NewHandler(service aistudio.Service, config Config) http.Handler {
 
 	root := http.NewServeMux()
 	root.Handle("/health", corsMiddleware(http.HandlerFunc(s.handleHealth)))
+	root.Handle("/metrics", promhttp.Handler())
 	root.Handle("/v1/", requestLoggingMiddleware(config.Admin, corsMiddleware(authMiddleware(config.APIKey, public))))
 	root.Handle("/v1beta/", requestLoggingMiddleware(config.Admin, corsMiddleware(authMiddleware(config.APIKey, public))))
 	root.Handle("/api/", loopbackMiddleware(sameOriginMiddleware(control)))
-	return root
+	return metrics.HTTPMiddleware(root)
 }
 
 func newID(prefix string) string {

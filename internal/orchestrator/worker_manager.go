@@ -211,7 +211,7 @@ func (manager *WorkerManager) workerConfig(account *aistudio.Account) camoufoxna
 		Locale:           account.Config.Locale,
 		Timezone:         account.Config.Timezone,
 		Proxy:            account.EffectiveProxy(manager.globalProxy),
-		Headless:         true,
+		Headless:         false,
 		TemporaryChat:    manager.temporaryChat,
 	}
 }

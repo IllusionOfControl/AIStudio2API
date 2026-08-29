@@ -38,8 +38,8 @@
 - **Google 工具**: 支持 Search、Image Search、URL Context、Code Execution 和 Maps
 - **反指纹检测**: 使用 Camoufox 持有官方 WAA 生命周期，并为每个账户固定浏览器指纹与出口
 - **图形界面启动器**: 通过网页管理账户、服务启停、实时日志、模型、请求和配置
+- **Prometheus & Grafana 监控**: 内置 `/metrics` 端点和一键 Docker Compose 监控栈（包含丰富指标和预置仪表盘）
 - **模块化架构**: Go 负责协议、调度、API 与管理端，Camoufox 负责 WAA 运行时和隔离登录
-
 ## 系统要求
 
 - **Windows Release 运行**: Windows 10 或更高版本、`aistudio2api.exe` 和 `start.bat`

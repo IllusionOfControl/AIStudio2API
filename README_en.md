@@ -38,8 +38,8 @@
 - **Google Tools**: Search, Image Search, URL Context, Code Execution, and Maps
 - **Anti-Fingerprinting**: Camoufox holds the official WAA lifecycle with a stable browser fingerprint and network exit per account
 - **GUI Launcher**: Manage accounts, service controls, live logs, models, requests, and configuration in the web UI
+- **Prometheus & Grafana Monitoring**: Built-in `/metrics` endpoint with turnkey Docker Compose setup and rich pre-configured Grafana dashboard ([docs/monitoring.md](docs/monitoring.md))
 - **Modular Architecture**: Go handles protocols, scheduling, APIs, and management; Camoufox hosts WAA and isolated login
-
 ## System Requirements
 
 - **Windows Release Runtime**: Windows 10 or later, `aistudio2api.exe`, and `start.bat`

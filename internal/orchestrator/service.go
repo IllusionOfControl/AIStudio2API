@@ -12,6 +12,7 @@ import (
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 	"github.com/Mag1cFall/AIStudio2API/internal/api"
+	"github.com/Mag1cFall/AIStudio2API/internal/metrics"
 )
 
 // Service coordinates tracked requests, model discovery, and generation state.
@@ -330,30 +331,37 @@ func (service *Service) observedDataRequestContext(
 func (service *Service) CountTokens(ctx context.Context, request aistudio.TokenCountRequest) (aistudio.TokenCount, error) {
 	requestCtx, cancel, err := service.observedDataRequestContext(ctx, request.Model)
 	if err != nil {
+		metrics.ObserveTokenCount(request.Model, false)
 		return aistudio.TokenCount{}, err
 	}
 	defer cancel()
 	count, requestErr := service.service.CountTokens(requestCtx, request)
+	metrics.ObserveTokenCount(request.Model, requestErr == nil)
 	api.SetAccessLogError(requestCtx, requestErr)
 	return count, requestErr
 }
-
 // GenerateVideo starts video generation.
 func (service *Service) GenerateVideo(ctx context.Context, request aistudio.VideoRequest) (aistudio.VideoOperation, error) {
 	requestCtx, cancel, err := service.observedDataRequestContext(ctx, request.Model)
 	if err != nil {
+		metrics.ObserveVideoRequest("error")
 		return aistudio.VideoOperation{}, err
 	}
 	defer cancel()
 	video, ok := service.service.(aistudio.VideoService)
 	if !ok {
+		metrics.ObserveVideoRequest("error")
 		return aistudio.VideoOperation{}, fmt.Errorf("video service unavailable")
 	}
 	operation, requestErr := video.GenerateVideo(requestCtx, request)
+	if requestErr != nil {
+		metrics.ObserveVideoRequest("error")
+	} else {
+		metrics.ObserveVideoRequest("success")
+	}
 	api.SetAccessLogError(requestCtx, requestErr)
 	return operation, requestErr
 }
-
 // GetGenerateVideoOperation polls a video generation operation.
 func (service *Service) GetGenerateVideoOperation(ctx context.Context, operationID string) (aistudio.VideoOperation, error) {
 	requestCtx, cancel, err := service.observedDataRequestContext(ctx, "")
