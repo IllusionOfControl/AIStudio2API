@@ -14,6 +14,7 @@ import (
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 	"github.com/Mag1cFall/AIStudio2API/internal/api"
+	"github.com/Mag1cFall/AIStudio2API/internal/browser"
 	"github.com/Mag1cFall/AIStudio2API/internal/camoufoxnative"
 	"github.com/Mag1cFall/AIStudio2API/internal/config"
 )
@@ -28,7 +29,7 @@ func newRuntime(ctx context.Context, cfg config.Config) (aistudio.Service, *runt
 		return nil, nil, nil, err
 	}
 	requests.log("service", "INFO", fmt.Sprintf("App startup | 2/4 | Verifying Camoufox | accounts=%d", len(accounts)))
-	camoufoxPath, err := findCamoufoxExecutable()
+	camoufoxPath, err := browser.FindCamoufoxExecutable()
 	if err != nil {
 		return nil, nil, nil, err
 	}

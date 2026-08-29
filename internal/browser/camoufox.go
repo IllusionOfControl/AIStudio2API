@@ -1,4 +1,4 @@
-package main
+package browser
 
 import (
 	"fmt"
@@ -8,11 +8,12 @@ import (
 	"strings"
 )
 
-func findCamoufoxExecutable() (string, error) {
+// FindCamoufoxExecutable locates an existing Camoufox installation or installs it automatically.
+func FindCamoufoxExecutable() (string, error) {
 	if configured := strings.TrimSpace(os.Getenv("CAMOUFOX_PATH")); configured != "" {
-		return validateCamoufoxExecutable(configured)
+		return ValidateCamoufoxExecutable(configured)
 	}
-	name, err := camoufoxExecutablePath()
+	name, err := CamoufoxExecutablePath()
 	if err != nil {
 		return "", err
 	}
@@ -26,19 +27,25 @@ func findCamoufoxExecutable() (string, error) {
 		}
 	}
 	for _, candidate := range candidates {
-		path, err := validateCamoufoxExecutable(candidate)
+		path, err := ValidateCamoufoxExecutable(candidate)
 		if err == nil {
 			return path, nil
 		}
 	}
-	path, err := installCamoufox(name)
+	path, err := InstallCamoufox(name)
 	if err != nil {
 		return "", fmt.Errorf("auto-prepare Camoufox: %w", err)
 	}
-	return validateCamoufoxExecutable(path)
+	return ValidateCamoufoxExecutable(path)
 }
 
-func camoufoxExecutablePath() (string, error) {
+// FindExecutable is an alias for FindCamoufoxExecutable.
+func FindExecutable() (string, error) {
+	return FindCamoufoxExecutable()
+}
+
+// CamoufoxExecutablePath returns the platform-specific Camoufox binary name or path.
+func CamoufoxExecutablePath() (string, error) {
 	switch runtime.GOOS {
 	case "windows":
 		return "camoufox.exe", nil
@@ -51,7 +58,13 @@ func camoufoxExecutablePath() (string, error) {
 	}
 }
 
-func validateCamoufoxExecutable(path string) (string, error) {
+// ExecutablePath is an alias for CamoufoxExecutablePath.
+func ExecutablePath() (string, error) {
+	return CamoufoxExecutablePath()
+}
+
+// ValidateCamoufoxExecutable verifies that the given path exists and is not a directory.
+func ValidateCamoufoxExecutable(path string) (string, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve Camoufox path: %w", err)
@@ -64,4 +77,9 @@ func validateCamoufoxExecutable(path string) (string, error) {
 		return "", fmt.Errorf("Camoufox path is a directory")
 	}
 	return absolute, nil
+}
+
+// ValidateExecutable is an alias for ValidateCamoufoxExecutable.
+func ValidateExecutable(path string) (string, error) {
+	return ValidateCamoufoxExecutable(path)
 }

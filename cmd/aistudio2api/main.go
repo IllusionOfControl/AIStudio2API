@@ -22,12 +22,24 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/webui"
 )
 
-type commandOptions struct {
-	openUI bool
+const (
+	defaultConfigPath = ".env"
+	serverReadTimeout = 10 * time.Second
+	serverIdleTimeout = 2 * time.Minute
+	shutdownTimeout   = 10 * time.Second
+)
+
+type cliOptions struct {
+	configPath string
+	authStates string
+	listenAddr string
+	proxyAddr  string
+	openUI     bool
+	autoStart  bool
 }
 
 func main() {
-	if err := runCommand(os.Args[1:]); err != nil {
+	if err := run(os.Args[1:]); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
@@ -36,113 +48,158 @@ func main() {
 	}
 }
 
-func runCommand(args []string) error {
-	cfg, err := config.Load(".env")
-	if err != nil {
-		return err
-	}
+func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if len(args) != 0 && args[0] == "setup" {
+		cfg, err := config.Load(defaultConfigPath)
+		if err != nil {
+			return fmt.Errorf("failed to load configuration for setup: %w", err)
+		}
 		return runSetup(ctx, cfg, args[1:])
 	}
-	options, err := parseFlags(args, &cfg)
+
+	opts, err := parseFlags(args)
 	if err != nil {
 		return err
 	}
+
+	cfg, err := loadAndMergeConfig(opts)
+	if err != nil {
+		return err
+	}
+
 	service, admin, closeRuntime, err := newRuntime(ctx, cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("runtime initialization failed: %w", err)
 	}
-	return errors.Join(runServer(ctx, cfg, options, service, admin), closeRuntime())
-}
-
-func parseFlags(args []string, cfg *config.Config) (commandOptions, error) {
-	flags := flag.NewFlagSet("aistudio2api", flag.ContinueOnError)
-	flags.Usage = func() {
-		fmt.Fprintln(flags.Output(), "Initial setup: aistudio2api setup")
-		fmt.Fprintln(flags.Output(), "Start server: aistudio2api [flags]")
-		flags.PrintDefaults()
-	}
-	authStates := flags.String("auth", cfg.AuthStates, "Account auth state files, directories, or comma-separated paths")
-	listenAddr := flags.String("listen", cfg.ListenAddr, "Server listen address")
-	proxy := flags.String("proxy", cfg.Proxy, "HTTP, HTTPS, or SOCKS5 proxy to use")
-	openUI := flags.Bool("open-ui", len(args) == 0, "Open admin UI in browser after startup")
-	if err := flags.Parse(args); err != nil {
-		return commandOptions{}, err
-	}
-	if flags.NArg() != 0 {
-		return commandOptions{}, fmt.Errorf("unknown argument %q", flags.Arg(0))
-	}
-
-	cfg.AuthStates = strings.TrimSpace(*authStates)
-	cfg.ListenAddr = strings.TrimSpace(*listenAddr)
-	cfg.Proxy = strings.TrimSpace(*proxy)
-	if err := cfg.Validate(); err != nil {
-		return commandOptions{}, err
-	}
-	return commandOptions{openUI: *openUI}, nil
-}
-
-func runServer(ctx context.Context, cfg config.Config, options commandOptions, service aistudio.Service, admin *runtimeAdmin) error {
-	admin.requests.log("service", "INFO", fmt.Sprintf("App startup | 4/4 | Listening HTTP | addr=%s", cfg.ListenAddr))
-	listener, err := net.Listen("tcp", cfg.ListenAddr)
-	if err != nil {
-		return fmt.Errorf("listen on %s: %w", cfg.ListenAddr, err)
-	}
-	apiHandler := api.NewHandler(service, api.Config{APIKey: cfg.ProxyAPIKey, Admin: admin})
-	server := &http.Server{
-		Handler:           rootHandler(apiHandler),
-		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       2 * time.Minute,
-	}
-	serveError := make(chan error, 1)
-	go func() {
-		serveError <- server.Serve(listener)
+	defer func() {
+		if closeErr := closeRuntime(); closeErr != nil {
+			slog.Error("Failed to cleanly close runtime resources", "error", closeErr)
+		}
 	}()
 
-	address := browserAddress(listener.Addr().String())
-	admin.requests.log("service", "INFO", "Admin service ready | addr=http://"+address)
-	if options.openUI {
-		if err := openBrowser("http://" + address); err != nil {
-			_ = server.Close()
-			<-serveError
-			return err
+	return runServer(ctx, cfg, opts, service, admin)
+}
+
+func parseFlags(args []string) (cliOptions, error) {
+	flags := flag.NewFlagSet("aistudio2api", flag.ContinueOnError)
+	flags.Usage = func() {
+		fmt.Fprintln(flags.Output(), "AIStudio2API - Google AI Studio to OpenAI/Anthropic/Gemini Gateway")
+		fmt.Fprintln(flags.Output(), "\nUsage:")
+		fmt.Fprintln(flags.Output(), "  First-time setup:  aistudio2api setup [options]")
+		fmt.Fprintln(flags.Output(), "  Start server:      aistudio2api [flags]")
+		fmt.Fprintln(flags.Output(), "\nFlags:")
+		flags.PrintDefaults()
+	}
+
+	var opts cliOptions
+
+	flags.StringVar(&opts.configPath, "config", defaultConfigPath, "Path to environment configuration file")
+	flags.StringVar(&opts.authStates, "auth", "", "Path to account states file/directory (overrides config)")
+	flags.StringVar(&opts.listenAddr, "listen", "", "HTTP listen address, e.g., 127.0.0.1:2048 (overrides config)")
+	flags.StringVar(&opts.proxyAddr, "proxy", "", "Outbound HTTP/HTTPS/SOCKS5 proxy URL (overrides config)")
+	flags.BoolVar(&opts.openUI, "open-ui", len(args) == 0, "Automatically open the admin web UI in default browser on launch")
+	flags.BoolVar(&opts.autoStart, "auto-start", false, "Automatically start the generation service on server startup")
+
+	if err := flags.Parse(args); err != nil {
+		return cliOptions{}, err
+	}
+	if flags.NArg() != 0 {
+		return cliOptions{}, fmt.Errorf("unknown positional argument %q", flags.Arg(0))
+	}
+
+	return opts, nil
+}
+
+func loadAndMergeConfig(opts cliOptions) (config.Config, error) {
+	cfg, err := config.Load(opts.configPath)
+	if err != nil {
+		return config.Config{}, fmt.Errorf("failed to load configuration from %s: %w", opts.configPath, err)
+	}
+
+	if strings.TrimSpace(opts.authStates) != "" {
+		cfg.AuthStates = strings.TrimSpace(opts.authStates)
+	}
+	if strings.TrimSpace(opts.listenAddr) != "" {
+		cfg.ListenAddr = strings.TrimSpace(opts.listenAddr)
+	}
+	if strings.TrimSpace(opts.proxyAddr) != "" {
+		cfg.Proxy = strings.TrimSpace(opts.proxyAddr)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return config.Config{}, fmt.Errorf("invalid merged configuration: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func runServer(ctx context.Context, cfg config.Config, options cliOptions, service aistudio.Service, admin *runtimeAdmin) error {
+	admin.requests.log("service", "INFO", fmt.Sprintf("App startup | 4/4 | Listening HTTP | addr=%s", cfg.ListenAddr))
+
+	listener, err := net.Listen("tcp", cfg.ListenAddr)
+	if err != nil {
+		return fmt.Errorf("failed to bind addr %s: %w", cfg.ListenAddr, err)
+	}
+
+	apiHandler := api.NewHandler(service, api.Config{
+		APIKey: cfg.ProxyAPIKey,
+		Admin:  admin,
+	})
+
+	server := &http.Server{
+		Handler:           buildRootMux(apiHandler),
+		ReadHeaderTimeout: serverReadTimeout,
+		IdleTimeout:       serverIdleTimeout,
+	}
+
+	serveErrCh := make(chan error, 1)
+	go func() {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serveErrCh <- err
 		}
-		admin.requests.log("service", "INFO", "Admin UI opened | addr=http://"+address)
+		close(serveErrCh)
+	}()
+
+	addr := resolveBrowserAddress(listener.Addr().String())
+	admin.requests.log("service", "INFO", fmt.Sprintf("Admin service ready | addr=http://%s", addr))
+
+	if options.openUI {
+		if err := openSystemBrowser("http://" + addr); err != nil {
+			slog.Warn("Failed to open browser automatically", "error", err)
+		} else {
+			admin.requests.log("service", "INFO", "Admin UI opened | addr=http://"+addr)
+		}
 	}
 
 	select {
-	case err := <-serveError:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
-		}
+	case err := <-serveErrCh:
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		slog.Info("Shutdown signal received, draining active connections...")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 		defer cancel()
+
 		if err := server.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown HTTP server: %w", err)
+			return fmt.Errorf("graceful shutdown failed: %w", err)
 		}
-		if err := <-serveError; err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return err
-		}
-		return nil
+		return <-serveErrCh
 	}
 }
 
-func rootHandler(apiHandler http.Handler) http.Handler {
-	root := http.NewServeMux()
-	root.Handle("/health", apiHandler)
-	root.Handle("/api/", apiHandler)
-	root.Handle("/v1/", apiHandler)
-	root.Handle("/v1beta/", apiHandler)
-	root.Handle("/", webui.Handler())
-	return root
+func buildRootMux(apiHandler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/health", apiHandler)
+	mux.Handle("/api/", apiHandler)
+	mux.Handle("/v1/", apiHandler)
+	mux.Handle("/v1beta/", apiHandler)
+	mux.Handle("/", webui.Handler())
+	return mux
 }
 
-func browserAddress(address string) string {
+func resolveBrowserAddress(address string) string {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return address
@@ -153,21 +210,23 @@ func browserAddress(address string) string {
 	return net.JoinHostPort(host, port)
 }
 
-func openBrowser(url string) error {
-	var command *exec.Cmd
+func openSystemBrowser(url string) error {
+	var cmd *exec.Cmd
+
 	switch runtime.GOOS {
 	case "windows":
-		command = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
 	case "darwin":
-		command = exec.Command("open", url)
+		cmd = exec.Command("open", url)
 	default:
-		command = exec.Command("xdg-open", url)
+		cmd = exec.Command("xdg-open", url)
 	}
-	if err := command.Start(); err != nil {
-		return fmt.Errorf("open admin UI: %w", err)
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("unable to launch browser: %w", err)
 	}
-	if err := command.Process.Release(); err != nil {
-		return fmt.Errorf("release admin UI process: %w", err)
+	if err := cmd.Process.Release(); err != nil {
+		return fmt.Errorf("failed to detach browser process: %w", err)
 	}
 	return nil
 }

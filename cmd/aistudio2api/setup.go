@@ -14,6 +14,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
+	"github.com/Mag1cFall/AIStudio2API/internal/browser"
 	"github.com/Mag1cFall/AIStudio2API/internal/camoufoxnative"
 	"github.com/Mag1cFall/AIStudio2API/internal/chromeauth"
 	"github.com/Mag1cFall/AIStudio2API/internal/config"
@@ -301,7 +302,7 @@ func defaultSetupLabel(storageState string) string {
 }
 
 func defaultSetupLoginDriver(cfg config.Config) (aistudio.IsolatedLoginDriver, error) {
-	camoufoxPath, err := findCamoufoxExecutable()
+	camoufoxPath, err := browser.FindCamoufoxExecutable()
 	if err != nil {
 		return nil, err
 	}
