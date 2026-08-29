@@ -22,7 +22,7 @@ const loginReadyExpression = `(() => {
   return Boolean(textarea && textarea.offsetParent !== null);
 })()`
 
-// LoginOptions 定义纯 Go 隔离登录环境
+// LoginOptions defines options for the pure Go isolated login environment.
 type LoginOptions struct {
 	ExecutablePath string
 	Directory      string
@@ -34,14 +34,14 @@ type LoginOptions struct {
 	Log            io.Writer
 }
 
-// LoginResult 返回隔离浏览器导出的 Playwright storage state
+// LoginResult returns the Playwright storage state exported from the isolated browser.
 type LoginResult struct {
 	StorageStateJSON []byte
 	PageURL          string
 	VerifiedAt       time.Time
 }
 
-// LoginVerification 返回已有登录态的页面验证结果
+// LoginVerification returns the page verification result for an existing login state.
 type LoginVerification struct {
 	Authenticated bool
 	PageURL       string
@@ -56,7 +56,7 @@ type loginSession struct {
 	contextID  string
 }
 
-// Login 启动可见隔离 Camoufox 并在 AI Studio 可用后导出认证状态
+// Login launches a visible isolated Camoufox instance and exports authentication state once AI Studio is ready.
 func Login(ctx context.Context, options LoginOptions) (result LoginResult, err error) {
 	options, err = validateLoginOptions(options)
 	if err != nil {
@@ -82,12 +82,12 @@ func Login(ctx context.Context, options LoginOptions) (result LoginResult, err e
 	}
 	encoded, err := json.Marshal(state)
 	if err != nil {
-		return LoginResult{}, fmt.Errorf("编码 storage state: %w", err)
+		return LoginResult{}, fmt.Errorf("encode storage state: %w", err)
 	}
 	return LoginResult{StorageStateJSON: encoded, PageURL: pageURL, VerifiedAt: time.Now().UTC()}, nil
 }
 
-// Verify 使用无头隔离 Camoufox 验证已有 Playwright storage state
+// Verify validates existing Playwright storage state using a headless isolated Camoufox instance.
 func Verify(ctx context.Context, options LoginOptions, storageStateJSON []byte) (verification LoginVerification, err error) {
 	options, err = validateLoginOptions(options)
 	if err != nil {
@@ -95,10 +95,10 @@ func Verify(ctx context.Context, options LoginOptions, storageStateJSON []byte) 
 	}
 	var state storageState
 	if err := json.Unmarshal(storageStateJSON, &state); err != nil {
-		return LoginVerification{}, fmt.Errorf("解析 storage state: %w", err)
+		return LoginVerification{}, fmt.Errorf("parse storage state: %w", err)
 	}
 	if len(state.Cookies) == 0 {
-		return LoginVerification{}, errors.New("storage state 没有 Cookie")
+		return LoginVerification{}, errors.New("storage state has no cookies")
 	}
 	verifyCtx, cancel := context.WithTimeout(ctx, options.Timeout)
 	defer cancel()
@@ -125,20 +125,20 @@ func validateLoginOptions(options LoginOptions) (LoginOptions, error) {
 	options.ExecutablePath = strings.TrimSpace(options.ExecutablePath)
 	options.Directory = strings.TrimSpace(options.Directory)
 	if options.ExecutablePath == "" {
-		return LoginOptions{}, errors.New("缺少 Camoufox 路径")
+		return LoginOptions{}, errors.New("missing Camoufox path")
 	}
 	if options.Directory == "" {
-		return LoginOptions{}, errors.New("缺少隔离登录目录")
+		return LoginOptions{}, errors.New("missing isolated login directory")
 	}
 	directory, err := filepath.Abs(options.Directory)
 	if err != nil {
-		return LoginOptions{}, fmt.Errorf("解析隔离登录目录: %w", err)
+		return LoginOptions{}, fmt.Errorf("resolve isolated login directory: %w", err)
 	}
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return LoginOptions{}, fmt.Errorf("创建隔离登录目录: %w", err)
+		return LoginOptions{}, fmt.Errorf("create isolated login directory: %w", err)
 	}
 	if options.Timeout <= 0 {
-		return LoginOptions{}, errors.New("隔离登录超时必须为正数")
+		return LoginOptions{}, errors.New("isolated login timeout must be positive")
 	}
 	options.Directory = directory
 	return options, nil
@@ -177,7 +177,7 @@ func startLoginSession(ctx context.Context, options LoginOptions, headless bool,
 	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
 	connection, _, err := dialer.DialContext(ctx, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("连接 Camoufox BiDi: %w", err)
+		return nil, fmt.Errorf("connect Camoufox BiDi: %w", err)
 	}
 	session.connection = connection
 	session.client = newBiDiClient(connection)
@@ -190,12 +190,12 @@ func startLoginSession(ctx context.Context, options LoginOptions, headless bool,
 	}
 	contexts, _ := tree["contexts"].([]any)
 	if len(contexts) == 0 {
-		return nil, errors.New("Camoufox BiDi 未返回初始 tab")
+		return nil, errors.New("Camoufox BiDi did not return initial tab")
 	}
 	root, _ := contexts[0].(map[string]any)
 	session.contextID, _ = root["context"].(string)
 	if session.contextID == "" {
-		return nil, errors.New("Camoufox BiDi 初始 tab 无效")
+		return nil, errors.New("invalid initial tab from Camoufox BiDi")
 	}
 	if len(state.Origins) != 0 {
 		if err := session.client.installLocalStorage(ctx, session.contextID, state.Origins); err != nil {
@@ -212,7 +212,7 @@ func startLoginSession(ctx context.Context, options LoginOptions, headless bool,
 		"url":     aiStudioOrigin + "/prompts/new_chat",
 		"wait":    "interactive",
 	}); err != nil && !strings.Contains(err.Error(), "NS_ERROR_ABORT") {
-		return nil, fmt.Errorf("导航 AI Studio: %w", err)
+		return nil, fmt.Errorf("navigate to AI Studio: %w", err)
 	}
 	failed = false
 	return session, nil
@@ -246,7 +246,7 @@ func (session *loginSession) waitVerification(ctx context.Context) (string, bool
 			continue
 		}
 		if isGoogleLoginURL(pageURL) {
-			return pageURL, false, "AI Studio 登录已失效", nil
+			return pageURL, false, "AI Studio login expired", nil
 		}
 		ready, err := session.client.evaluateBool(ctx, session.contextID, loginReadyExpression)
 		if err == nil && ready && strings.HasPrefix(pageURL, aiStudioOrigin+"/") {
@@ -277,7 +277,7 @@ func (session *loginSession) captureCurrentOrigin(ctx context.Context, pageURL s
 func (session *loginSession) exportStorageState(ctx context.Context, origins map[string]storageOrigin) (storageState, error) {
 	result, err := session.client.command(ctx, "storage.getCookies", map[string]any{})
 	if err != nil {
-		return storageState{}, fmt.Errorf("导出 Cookie: %w", err)
+		return storageState{}, fmt.Errorf("export cookies: %w", err)
 	}
 	items, _ := result["cookies"].([]any)
 	cookies := make([]storageCookie, 0, len(items))
@@ -289,7 +289,7 @@ func (session *loginSession) exportStorageState(ctx context.Context, origins map
 		}
 	}
 	if len(cookies) == 0 {
-		return storageState{}, errors.New("隔离浏览器没有可导出的 Cookie")
+		return storageState{}, errors.New("isolated browser has no exportable cookies")
 	}
 	sort.SliceStable(cookies, func(left, right int) bool {
 		if cookies[left].Domain != cookies[right].Domain {
@@ -346,7 +346,7 @@ func decodeStorageCookie(value map[string]any) (storageCookie, bool) {
 	}, true
 }
 
-// Close 结束登录 session 并清理隔离 profile
+// Close terminates the login session and cleans up the isolated profile.
 func (session *loginSession) Close() error {
 	if session == nil {
 		return nil

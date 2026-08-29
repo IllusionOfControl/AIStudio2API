@@ -29,7 +29,7 @@ var publicHeaderNames = []string{
 	"user-agent",
 }
 
-// Worker 保存单个账户的长驻 Camoufox 与 WAA service
+// Worker manages a persistent Camoufox process and WAA service for a single account.
 type Worker struct {
 	mu         sync.Mutex
 	process    *browserProcess
@@ -40,14 +40,14 @@ type Worker struct {
 	closed     bool
 }
 
-// Start 启动隔离 Camoufox 并完成一次官网 WAA bootstrap
+// Start launches isolated Camoufox and performs an initial WAA bootstrap on the official site.
 func Start(ctx context.Context, options Options) (*Worker, error) {
 	state, err := loadStorageState(options.StorageStatePath)
 	if err != nil {
 		return nil, err
 	}
 	if options.Model == "" {
-		return nil, errors.New("WAA bootstrap 缺少实时目录聊天模型")
+		return nil, errors.New("WAA bootstrap missing live catalog chat model")
 	}
 	if options.BootstrapPrompt == "" {
 		options.BootstrapPrompt = fmt.Sprintf("AIStudio2API bootstrap %d", time.Now().UnixNano())
@@ -77,7 +77,7 @@ func Start(ctx context.Context, options Options) (*Worker, error) {
 	dialer := websocket.Dialer{HandshakeTimeout: 30 * time.Second}
 	connection, _, err := dialer.DialContext(ctx, endpoint, nil)
 	if err != nil {
-		return nil, fmt.Errorf("连接 Camoufox BiDi: %w", err)
+		return nil, fmt.Errorf("connect Camoufox BiDi: %w", err)
 	}
 	worker.connection = connection
 	worker.client = newBiDiClient(connection)
@@ -88,7 +88,7 @@ func Start(ctx context.Context, options Options) (*Worker, error) {
 	return worker, nil
 }
 
-// ProtocolHeaders 返回官网为 GenerateContent 构造的七个公共头
+// ProtocolHeaders returns the public headers captured for GenerateContent.
 func (worker *Worker) ProtocolHeaders(ctx context.Context) (http.Header, error) {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
@@ -96,29 +96,29 @@ func (worker *Worker) ProtocolHeaders(ctx context.Context) (http.Header, error) 
 		return nil, err
 	}
 	if worker.closed {
-		return nil, errors.New("Camoufox runtime 已关闭")
+		return nil, errors.New("Camoufox runtime is closed")
 	}
 	return worker.state.Headers.Clone(), nil
 }
 
-// Proof 为给定 SHA-256 digest 生成一枚 fresh WAA proof
+// Proof generates a fresh WAA proof for a given SHA-256 digest.
 func (worker *Worker) Proof(ctx context.Context, digest string) (string, error) {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
 	if worker.closed {
-		return "", errors.New("Camoufox runtime 已关闭")
+		return "", errors.New("Camoufox runtime is closed")
 	}
 	proof, err := worker.client.evaluateString(ctx, worker.contextID, takeProofExpression(digest))
 	if err != nil {
-		return "", fmt.Errorf("生成 fresh WAA proof: %w", err)
+		return "", fmt.Errorf("generate fresh WAA proof: %w", err)
 	}
 	if !strings.HasPrefix(proof, "!") {
-		return "", errors.New("fresh WAA proof 前缀无效")
+		return "", errors.New("invalid fresh WAA proof prefix")
 	}
 	return proof, nil
 }
 
-// State 返回 runtime 的不可变状态副本
+// State returns an immutable snapshot of runtime state.
 func (worker *Worker) State() State {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
@@ -127,7 +127,7 @@ func (worker *Worker) State() State {
 	return state
 }
 
-// Close 结束 BiDi session 并清理 Camoufox profile
+// Close terminates the BiDi session and cleans up the Camoufox profile.
 func (worker *Worker) Close() error {
 	if worker == nil {
 		return nil
@@ -162,12 +162,12 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 	}
 	contexts, _ := tree["contexts"].([]any)
 	if len(contexts) == 0 {
-		return errors.New("Camoufox BiDi 未返回初始 tab")
+		return errors.New("Camoufox BiDi did not return initial tab")
 	}
 	root, _ := contexts[0].(map[string]any)
 	contextID, _ := root["context"].(string)
 	if contextID == "" {
-		return errors.New("Camoufox BiDi 初始 tab 无效")
+		return errors.New("invalid initial tab from Camoufox BiDi")
 	}
 	worker.contextID = contextID
 	if err := client.installLocalStorage(ctx, contextID, storage.Origins); err != nil {
@@ -186,21 +186,21 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 		"url":     target,
 		"wait":    "interactive",
 	}); err != nil && !strings.Contains(err.Error(), "NS_ERROR_ABORT") {
-		return fmt.Errorf("导航 AI Studio: %w", err)
+		return fmt.Errorf("navigate to AI Studio: %w", err)
 	}
 	if err := client.waitFor(ctx, contextID, `(() => {
   const item = document.querySelector('ms-prompt-box textarea:last-of-type') || [...document.querySelectorAll('ms-prompt-box textarea')].at(-1);
   return Boolean(item && item.offsetParent !== null);
 })()`, 120*time.Second); err != nil {
 		pageURL, _ := client.evaluateString(ctx, contextID, "location.href")
-		return fmt.Errorf("AI Studio 输入框未就绪 url=%s: %w", pageURL, err)
+		return fmt.Errorf("AI Studio prompt box not ready url=%s: %w", pageURL, err)
 	}
 	pageURL, err := client.evaluateString(ctx, contextID, "location.href")
 	if err != nil {
 		return err
 	}
 	if strings.Contains(pageURL, "accounts.google.com") {
-		return fmt.Errorf("隔离登录态失效 url=%s", pageURL)
+		return fmt.Errorf("isolated login state expired url=%s", pageURL)
 	}
 	_, _ = client.evaluate(ctx, contextID, `(() => {
   const bar = document.querySelector('#glue-cookie-notification-bar-1');
@@ -219,7 +219,7 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 	options.reportStartup(StartupBootstrappingWAA)
 	filled, err := client.evaluateString(ctx, contextID, fillPromptExpression(options.BootstrapPrompt))
 	if err != nil || filled != options.BootstrapPrompt {
-		return fmt.Errorf("填写 bootstrap 提示词失败 value=%q err=%v", filled, err)
+		return fmt.Errorf("failed to fill bootstrap prompt value=%q err=%v", filled, err)
 	}
 	if _, err := client.command(ctx, "session.subscribe", map[string]any{
 		"events":   []string{"network.beforeRequestSent"},
@@ -238,11 +238,11 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 		}},
 	})
 	if err != nil {
-		return fmt.Errorf("安装 GenerateContent 拦截: %w", err)
+		return fmt.Errorf("install GenerateContent intercept: %w", err)
 	}
 	interceptID, _ := intercept["intercept"].(string)
 	if interceptID == "" {
-		return errors.New("GenerateContent 拦截 ID 无效")
+		return errors.New("invalid GenerateContent intercept ID")
 	}
 	clicked, err := client.evaluateBool(ctx, contextID, `(() => {
   const button = [...document.querySelectorAll('ms-run-button button[type="submit"]')].at(-1);
@@ -251,17 +251,17 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
   return true;
 })()`)
 	if err != nil || !clicked {
-		return fmt.Errorf("官网 Run 按钮不可用 clicked=%t err=%v", clicked, err)
+		return fmt.Errorf("official Run button unavailable clicked=%t err=%v", clicked, err)
 	}
 	if err := client.waitFor(ctx, contextID, "Boolean(window.__aistudioWaaService)", 60*time.Second); err != nil {
-		return fmt.Errorf("官网 WAA service 未暴露: %w", err)
+		return fmt.Errorf("official WAA service not exposed: %w", err)
 	}
 	requestID, err := client.waitBlockedGenerateRequest(ctx, contextID, 60*time.Second)
 	if err != nil {
 		return err
 	}
 	if _, err := client.command(ctx, "network.failRequest", map[string]any{"request": requestID}); err != nil {
-		return fmt.Errorf("终止 bootstrap GenerateContent: %w", err)
+		return fmt.Errorf("terminate bootstrap GenerateContent: %w", err)
 	}
 	headers := make(http.Header, len(publicHeaderNames))
 	for _, name := range publicHeaderNames {
@@ -272,7 +272,7 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 	}
 	for _, name := range []string{"user-agent", "x-goog-api-key", "x-goog-authuser", "x-user-agent"} {
 		if headers.Get(name) == "" {
-			return fmt.Errorf("官网 GenerateContent 缺少必要公共头 %s", name)
+			return fmt.Errorf("official GenerateContent missing required header %s", name)
 		}
 	}
 	userAgent, _ := client.evaluateString(ctx, contextID, "navigator.userAgent")
@@ -290,7 +290,7 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 	return nil
 }
 
-// dismissVisibleDialogs 关闭页面启动时出现的可见公告模态
+// dismissVisibleDialogs closes visible announcement dialogs appearing on page startup.
 func dismissVisibleDialogs(ctx context.Context, client *bidiClient, contextID string) error {
 	for range 8 {
 		clicked, err := client.evaluateBool(ctx, contextID, `(() => {
@@ -306,7 +306,7 @@ func dismissVisibleDialogs(ctx context.Context, client *bidiClient, contextID st
   return false;
 })()`)
 		if err != nil {
-			return fmt.Errorf("处理 AI Studio 公告模态: %w", err)
+			return fmt.Errorf("dismiss AI Studio dialogs: %w", err)
 		}
 		if !clicked {
 			return nil
@@ -323,14 +323,14 @@ func dismissVisibleDialogs(ctx context.Context, client *bidiClient, contextID st
 func loadStorageState(path string) (storageState, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return storageState{}, fmt.Errorf("读取 storage state: %w", err)
+		return storageState{}, fmt.Errorf("read storage state: %w", err)
 	}
 	var state storageState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return storageState{}, fmt.Errorf("解析 storage state: %w", err)
+		return storageState{}, fmt.Errorf("parse storage state: %w", err)
 	}
 	if len(state.Cookies) == 0 {
-		return storageState{}, errors.New("storage state 没有 Cookie")
+		return storageState{}, errors.New("storage state has no cookies")
 	}
 	return state, nil
 }

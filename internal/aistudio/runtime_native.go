@@ -11,7 +11,7 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/camoufoxnative"
 )
 
-// NativeWorker 将纯 Go Camoufox runtime 适配为 WAA preparer
+// NativeWorker adapts the pure Go Camoufox runtime as a WAA preparer.
 type NativeWorker struct {
 	accountID   string
 	runtime     *camoufoxnative.Worker
@@ -23,10 +23,10 @@ type NativeWorker struct {
 var _ ProtectedPreparer = (*NativeWorker)(nil)
 var _ ProtocolHeaderProvider = (*NativeWorker)(nil)
 
-// NewNativeWorker 启动单个账户的纯 Go Camoufox runtime
+// NewNativeWorker starts a pure Go Camoufox runtime for a single account.
 func NewNativeWorker(ctx context.Context, accountID string, options camoufoxnative.Options) (*NativeWorker, error) {
 	if accountID == "" {
-		return nil, fmt.Errorf("缺少账户 ID")
+		return nil, fmt.Errorf("missing account ID")
 	}
 	runtime, err := camoufoxnative.Start(ctx, options)
 	if err != nil {
@@ -46,7 +46,7 @@ func NewNativeWorker(ctx context.Context, accountID string, options camoufoxnati
 	}, nil
 }
 
-// Prepare 生成 fresh proof 并写入 GenerateContent 第五槽
+// Prepare generates fresh proof and writes it to the designated WAA field.
 func (worker *NativeWorker) Prepare(ctx context.Context, request ProtectedRequest) (PreparedProtectedRequest, error) {
 	worker.operationMu.Lock()
 	defer worker.operationMu.Unlock()
@@ -64,10 +64,10 @@ func (worker *NativeWorker) Prepare(ctx context.Context, request ProtectedReques
 	var payload []any
 	if err := json.Unmarshal(request.Body, &payload); err != nil {
 		worker.fail(err)
-		return PreparedProtectedRequest{}, fmt.Errorf("解析受保护请求: %w", err)
+		return PreparedProtectedRequest{}, fmt.Errorf("parse protected request: %w", err)
 	}
 	if request.ProofField < 1 || len(payload) < request.ProofField {
-		err := fmt.Errorf("受保护请求缺少 WAA field %d", request.ProofField)
+		err := fmt.Errorf("protected request missing WAA field %d", request.ProofField)
 		worker.fail(err)
 		return PreparedProtectedRequest{}, err
 	}
@@ -75,7 +75,7 @@ func (worker *NativeWorker) Prepare(ctx context.Context, request ProtectedReques
 	body, err := json.Marshal(payload)
 	if err != nil {
 		worker.fail(err)
-		return PreparedProtectedRequest{}, fmt.Errorf("编码受保护请求: %w", err)
+		return PreparedProtectedRequest{}, fmt.Errorf("encode protected request: %w", err)
 	}
 	headers, err := worker.runtime.ProtocolHeaders(ctx)
 	if err != nil {
@@ -91,22 +91,22 @@ func (worker *NativeWorker) Prepare(ctx context.Context, request ProtectedReques
 	}, nil
 }
 
-// ProtocolHeaders 返回当前账户官网请求的动态公共头
+// ProtocolHeaders returns dynamic public headers from official website requests.
 func (worker *NativeWorker) ProtocolHeaders(ctx context.Context, accountID string) (http.Header, error) {
 	if accountID != "" && accountID != worker.accountID {
-		return nil, fmt.Errorf("runtime 账户不匹配")
+		return nil, fmt.Errorf("runtime account mismatch")
 	}
 	return worker.runtime.ProtocolHeaders(ctx)
 }
 
-// State 返回纯 Go runtime 状态
+// State returns the pure Go runtime state.
 func (worker *NativeWorker) State() WorkerState {
 	worker.stateMu.RLock()
 	defer worker.stateMu.RUnlock()
 	return worker.state
 }
 
-// Close 关闭纯 Go runtime
+// Close closes the pure Go runtime.
 func (worker *NativeWorker) Close() error {
 	worker.operationMu.Lock()
 	defer worker.operationMu.Unlock()

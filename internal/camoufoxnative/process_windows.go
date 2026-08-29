@@ -9,7 +9,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// configureBrowserProcess 将 Camoufox 隔离到独立 Windows 进程组
+// configureBrowserProcess isolates Camoufox into an independent Windows process group.
 func configureBrowserProcess(command *exec.Cmd, headless bool) {
 	attributes := &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 	if headless {

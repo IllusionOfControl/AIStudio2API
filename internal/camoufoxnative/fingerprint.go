@@ -23,7 +23,7 @@ type savedFingerprint struct {
 	Config         map[string]any `json:"config"`
 }
 
-// PersistAccountFingerprint 将隔离登录指纹保存到账户目录
+// PersistAccountFingerprint saves isolated login fingerprint to the target account directory.
 func PersistAccountFingerprint(sourceDirectory string, targetDirectory string) error {
 	source := filepath.Join(sourceDirectory, "camoufox-fingerprint.json")
 	data, err := os.ReadFile(source)
@@ -31,19 +31,19 @@ func PersistAccountFingerprint(sourceDirectory string, targetDirectory string) e
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("读取隔离登录 Camoufox 指纹: %w", err)
+		return fmt.Errorf("read isolated login Camoufox fingerprint: %w", err)
 	}
 	var saved savedFingerprint
 	if err := json.Unmarshal(data, &saved); err != nil {
-		return fmt.Errorf("解析隔离登录 Camoufox 指纹: %w", err)
+		return fmt.Errorf("parse isolated login Camoufox fingerprint: %w", err)
 	}
 	if len(saved.Config) == 0 {
-		return fmt.Errorf("隔离登录 Camoufox 指纹为空")
+		return fmt.Errorf("isolated login Camoufox fingerprint is empty")
 	}
 	return writeAccountCamoufoxConfig(filepath.Join(targetDirectory, "camoufox-fingerprint.json"), saved)
 }
 
-// browserMajor 从 Camoufox 发行元数据读取实际 Firefox 主版本
+// browserMajor reads actual Firefox major version from Camoufox release metadata.
 func browserMajor(executablePath string) (int, error) {
 	directory := filepath.Dir(executablePath)
 	var data []byte
@@ -60,22 +60,22 @@ func browserMajor(executablePath string) (int, error) {
 		directory = parent
 	}
 	if err != nil {
-		return 0, fmt.Errorf("读取 Camoufox 版本: %w", err)
+		return 0, fmt.Errorf("read Camoufox version: %w", err)
 	}
 	var metadata struct {
 		Version string `json:"version"`
 	}
 	if err := json.Unmarshal(data, &metadata); err != nil {
-		return 0, fmt.Errorf("解析 Camoufox 版本: %w", err)
+		return 0, fmt.Errorf("parse Camoufox version: %w", err)
 	}
 	var major int
 	if _, err := fmt.Sscanf(metadata.Version, "%d", &major); err != nil || major <= 0 {
-		return 0, fmt.Errorf("Camoufox 版本无效: %s", metadata.Version)
+		return 0, fmt.Errorf("invalid Camoufox version: %s", metadata.Version)
 	}
 	return major, nil
 }
 
-// buildCamoufoxConfig 生成与实际 Camoufox 版本一致的 Windows Firefox 指纹
+// buildCamoufoxConfig generates a Windows Firefox fingerprint matching the Camoufox version.
 func buildCamoufoxConfig(ffVersion int, locale string, timezone string) (map[string]any, error) {
 	locale = normalizeLocale(locale)
 	locales := localeValues(locale)
@@ -95,7 +95,7 @@ func buildCamoufoxConfig(ffVersion int, locale string, timezone string) (map[str
 		},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("生成 BrowserForge 指纹: %w", err)
+		return nil, fmt.Errorf("generate BrowserForge fingerprint: %w", err)
 	}
 	version := fmt.Sprintf("%d.0", ffVersion)
 	userAgent := replaceFirefoxVersion(fingerprint.Navigator.UserAgent, version)
@@ -161,7 +161,7 @@ func buildCamoufoxConfig(ffVersion int, locale string, timezone string) (map[str
 	return config, nil
 }
 
-// loadAccountCamoufoxConfig 按账户复用非敏感 Camoufox 指纹
+// loadAccountCamoufoxConfig loads and reuses non-sensitive Camoufox fingerprint per account.
 func loadAccountCamoufoxConfig(storageStatePath string, ffVersion int, locale string, timezone string) (map[string]any, error) {
 	locale = normalizeLocale(locale)
 	timezone = strings.TrimSpace(timezone)
@@ -181,14 +181,14 @@ func loadAccountCamoufoxConfig(storageStatePath string, ffVersion int, locale st
 		return config, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("读取账户 Camoufox 指纹: %w", err)
+		return nil, fmt.Errorf("read account Camoufox fingerprint: %w", err)
 	}
 	var saved savedFingerprint
 	if err := json.Unmarshal(data, &saved); err != nil {
-		return nil, fmt.Errorf("解析账户 Camoufox 指纹: %w", err)
+		return nil, fmt.Errorf("parse account Camoufox fingerprint: %w", err)
 	}
 	if len(saved.Config) == 0 {
-		return nil, fmt.Errorf("账户 Camoufox 指纹为空")
+		return nil, fmt.Errorf("account Camoufox fingerprint is empty")
 	}
 	changed := false
 	if saved.FirefoxVersion != ffVersion {
@@ -252,19 +252,19 @@ func applyLocaleTimezone(config map[string]any, locale string, timezone string) 
 func writeAccountCamoufoxConfig(path string, saved savedFingerprint) error {
 	encoded, err := json.Marshal(saved)
 	if err != nil {
-		return fmt.Errorf("编码账户 Camoufox 指纹: %w", err)
+		return fmt.Errorf("encode account Camoufox fingerprint: %w", err)
 	}
 	if err := os.WriteFile(path, encoded, 0o600); err != nil {
-		return fmt.Errorf("写入账户 Camoufox 指纹: %w", err)
+		return fmt.Errorf("write account Camoufox fingerprint: %w", err)
 	}
 	return nil
 }
 
-// camoufoxEnvironment 将指纹 JSON 分片写入 Camoufox 环境变量
+// camoufoxEnvironment writes chunked fingerprint JSON into Camoufox environment variables.
 func camoufoxEnvironment(config map[string]any) ([]string, error) {
 	encoded, err := json.Marshal(config)
 	if err != nil {
-		return nil, fmt.Errorf("编码 Camoufox 指纹: %w", err)
+		return nil, fmt.Errorf("encode Camoufox fingerprint: %w", err)
 	}
 	values := make(map[string]string)
 	for _, item := range os.Environ() {

@@ -6,25 +6,25 @@ import (
 	"time"
 )
 
-// StartupStage 表示 Camoufox runtime 的启动阶段
+// StartupStage represents the startup stage of the Camoufox runtime.
 type StartupStage string
 
 const (
-	// StartupPreparingBrowser 表示正在准备浏览器配置
+	// StartupPreparingBrowser indicates preparing browser profile and configuration.
 	StartupPreparingBrowser StartupStage = "preparing_browser"
-	// StartupLaunchingBrowser 表示正在启动浏览器进程
+	// StartupLaunchingBrowser indicates launching the browser process.
 	StartupLaunchingBrowser StartupStage = "launching_browser"
-	// StartupConnectingBiDi 表示正在连接 WebDriver BiDi
+	// StartupConnectingBiDi indicates connecting to WebDriver BiDi.
 	StartupConnectingBiDi StartupStage = "connecting_bidi"
-	// StartupLoadingAIStudio 表示正在载入 AI Studio 页面
+	// StartupLoadingAIStudio indicates loading the AI Studio page.
 	StartupLoadingAIStudio StartupStage = "loading_ai_studio"
-	// StartupLocatingWAA 表示正在定位 WAA 服务
+	// StartupLocatingWAA indicates locating the WAA service.
 	StartupLocatingWAA StartupStage = "locating_waa"
-	// StartupBootstrappingWAA 表示正在执行 WAA Bootstrap
+	// StartupBootstrappingWAA indicates executing WAA bootstrap.
 	StartupBootstrappingWAA StartupStage = "bootstrapping_waa"
 )
 
-// Options 定义单个 AI Studio 账户的原生 Camoufox runtime
+// Options defines options for running a native Camoufox runtime for a single account.
 type Options struct {
 	ExecutablePath   string
 	StorageStatePath string
@@ -47,7 +47,7 @@ func (options Options) reportStartup(stage StartupStage) {
 	}
 }
 
-// State 返回原生 runtime 的当前页面与 bootstrap 结果
+// State returns the current page URL, headers, and bootstrap results of the native runtime.
 type State struct {
 	PID         int
 	PageURL     string

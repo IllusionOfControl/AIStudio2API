@@ -4,5 +4,5 @@ package camoufoxnative
 
 import "os/exec"
 
-// configureBrowserProcess 使用当前平台的默认进程属性
+// configureBrowserProcess configures default process attributes for the current platform.
 func configureBrowserProcess(command *exec.Cmd, _ bool) {}
