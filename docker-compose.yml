@@ -1,0 +1,22 @@
+services:
+  aistudio2api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: aistudio2api
+    restart: unless-stopped
+    ports:
+      - "2048:2048"
+    volumes:
+      - ./auth:/app/auth
+    environment:
+      - LISTEN_ADDR=0.0.0.0:2048
+      - AISTUDIO_AUTH_STATES=/app/auth
+      - PROXY_API_KEY=${PROXY_API_KEY:-}
+      - PROXY=${PROXY:-}
+      - INIT_TIMEOUT=${INIT_TIMEOUT:-2m}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-5m}
+      - WARM_WORKER_LIMIT=${WARM_WORKER_LIMIT:-5}
+      - WARM_STARTUP_CONCURRENCY=${WARM_STARTUP_CONCURRENCY:-2}
+      - PER_ACCOUNT_CONCURRENCY=${PER_ACCOUNT_CONCURRENCY:-2}
+      - TEMPORARY_CHAT=${TEMPORARY_CHAT:-false}
