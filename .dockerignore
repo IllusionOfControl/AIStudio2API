@@ -1,0 +1,13 @@
+.git
+.gitignore
+.env
+auth/
+runtime/
+internal/webui/dist/
+web/node_modules/
+web/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+*.log
