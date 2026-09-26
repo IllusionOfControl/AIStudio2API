@@ -2,6 +2,10 @@
 
 This directory contains historical documentation for active, merged, and archived branches in the `AIStudio2API` repository: what was changed, when, by whom, and in which files.
 
+> **Rule for Agents & Contributors**:
+> - Always create a branch document `docs/branches/<branch-name>.md` using `_template.md` when working on a branch.
+> - Always log merges into `dev` in [`_dev.md`](_dev.md) and update the branch status below to `Merged into dev`.
+
 ## Summary Table
 
 | Branch | Purpose / Scope | Active Date | Commits | Status | Document |

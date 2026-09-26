@@ -53,12 +53,15 @@ Every agent and contributor **must** adhere to these architectural invariants:
 - Accounts are identified by `ID: "<Profile>/<GaiaID>"`.
 - API and CLI use `AccountIDs []string` / `account_ids`, not profile names.
 
-### B. Single-Direction Data Flow & Clean Separation
+### D. Single-Direction Data Flow & Clean Separation
 - `internal/api/` handles external protocol serialization/deserialization. It does not touch raw Camoufox processes, disk locks, or low-level account leases directly.
 - `internal/aistudio/` contains wire encoders/decoders for Google's internal array format and account structures.
 - `internal/app/` coordinates business logic, service restart/start lifecycle, account leasing, and scheduling policies.
 - `cmd/aistudio2api/` remains a thin entry point delegating to `app.Run()`.
 
+### E. Branch Documentation & Dev Merge Logging
+- **Branch Document**: For any feature, refactoring, or sync branch, create a documentation file in `docs/branches/<branch-name>.md` using `docs/branches/_template.md` as the template.
+- **Merge Logging in `_dev.md`**: Whenever a branch or set of changes is merged into `dev`, **must** add a new entry to `docs/branches/_dev.md` (Date, Commit hash, Author, Source Branch, and bulleted summary of changes) and update `docs/branches/_index.md` status to `Merged into dev`.
 ---
 
 ## 3. Directory Layout
@@ -144,3 +147,4 @@ npm run format:check
   - `go vet ./...` reports 0 issues.
   - `npm --prefix web run typecheck` passes without errors (if frontend touched).
 - [ ] **Protocols**: If modifying upstream AI Studio wire encoding/decoding, verify array indexing rules (`field N` corresponds to index `N-1`).
+- [ ] **Branch Documentation**: Is the branch documented in `docs/branches/`? If merging into `dev`, is `docs/branches/_dev.md` updated?

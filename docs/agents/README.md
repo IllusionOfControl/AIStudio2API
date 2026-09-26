@@ -21,3 +21,4 @@ Welcome to the **AIStudio2API** Agent Documentation directory. This documentatio
 2. **Configuration Invariant**: Runtime configuration is **strictly read-only**. Do not reintroduce mutable `/api/config` endpoints or runtime `.env` saving.
 3. **Array Indexing Invariant**: In MakerSuite protobuf wire encoding, arrays are 0-indexed while protobuf fields are 1-indexed (`protobuf field N` corresponds to array index `N-1`).
 4. **Verification Invariant**: Before concluding any code change turn, run `go test ./...` and `npm --prefix web run typecheck`.
+5. **Branch Tracking & Dev Merge Invariant**: Always document branches in `docs/branches/<branch-name>.md` and log every merge into `dev` in `docs/branches/_dev.md`.

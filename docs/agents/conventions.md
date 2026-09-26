@@ -93,3 +93,24 @@ Follow the Conventional Commits format:
 - `docs: <description>` — Documentation improvements.
 
 Commit messages must be concise, accurate, and written in English.
+
+---
+
+## 5. Branch Documentation & Dev Merge Invariant
+
+To maintain a clear historical audit trail of features, refactorings, and integrations:
+
+1. **Branch Specification File**:
+   - For every working branch (`feature/*`, `refactor/*`, `sync/*`, etc.), create a markdown document in `docs/branches/<branch-name>.md`.
+   - Base the document on `docs/branches/_template.md` (metadata frontmatter with `branch`, `last_commit`, `status`, `last_activity`, followed by `Task`, `Description`, `Changes`, and `Result` sections).
+   - Register the branch in the summary table of `docs/branches/_index.md`.
+
+2. **Dev Merge Logging (`_dev.md`)**:
+   - Whenever changes or branches are merged into `dev`, **must** add a corresponding record to `docs/branches/_dev.md`.
+   - Record format:
+     - Date (`YYYY-MM-DD`)
+     - Commit hash
+     - Author name and email
+     - Source branch name
+     - Concise bulleted summary of all changes merged
+   - Update the branch status in `docs/branches/_index.md` from `in-process` or `ready` to `Merged into dev`.
