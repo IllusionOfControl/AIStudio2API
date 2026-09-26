@@ -154,18 +154,19 @@ type AccountCreateInput struct {
 
 // ChromeImportProfile represents an account that can be imported from local Chrome.
 type ChromeImportProfile struct {
+	ID          string `json:"id"`
 	Profile     string `json:"profile"`
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
 	Locale      string `json:"locale"`
 }
 
-// ChromeImportInput represents Chrome profiles and account environment for batch import.
+// ChromeImportInput represents Chrome accounts and account environment for batch import.
 type ChromeImportInput struct {
-	Profiles []string `json:"profiles"`
-	Proxy    string   `json:"proxy"`
-	Locale   string   `json:"locale"`
-	Timezone string   `json:"timezone"`
+	AccountIDs []string `json:"account_ids"`
+	Proxy      string   `json:"proxy"`
+	Locale     string   `json:"locale"`
+	Timezone   string   `json:"timezone"`
 }
 
 // RuntimeConfig represents global runtime configuration.

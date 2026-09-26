@@ -150,6 +150,10 @@ func (c *Client) do(ctx context.Context, method string, accountID string, reques
 func (c *Client) doProtected(ctx context.Context, request GenerateRequest, body []byte) (*RPCResponse, error) {
 	rpc := newRPCRequest("GenerateContent", request.AccountID, request.ID, body, true)
 	c.applyBenefitTier(rpc.Method, request.AccountID, rpc.Header)
+	if request.ImageRoute {
+		// Image requests use extension header defaults independent of text warm-up page
+		rpc.Header["X-Goog-Ext-519733851-Bin"] = nil
+	}
 	response, err := c.protected.DoProtected(ctx, request, rpc)
 	if err != nil {
 		return nil, fmt.Errorf("send AI Studio GenerateContent: %w", err)

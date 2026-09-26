@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // pageDOMHelpers defines shared visibility and button state checks for official web pages.
@@ -24,6 +25,11 @@ const promptReadyExpression = `(() => {` + pageDOMHelpers + `
 
 // workerPageReadyExpression waits for the prompt textarea to appear or page redirects to login.
 const workerPageReadyExpression = `(location.hostname === 'accounts.google.com' || ` + promptReadyExpression + `)`
+
+// normalizePromptNewlines normalizes CRLF and CR to LF since the official textarea normalizes values to LF.
+func normalizePromptNewlines(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n")
+}
 
 // fillPromptExpression writes text to the currently visible prompt box and dispatches input events.
 func fillPromptExpression(prompt string) string {

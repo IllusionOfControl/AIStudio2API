@@ -33,6 +33,7 @@ type chatRequest struct {
 	ReasoningEffort     string            `json:"reasoning_effort"`
 	Reasoning           json.RawMessage   `json:"reasoning"`
 	Seed                *int64            `json:"seed"`
+	WebSearchOptions    json.RawMessage   `json:"web_search_options"`
 }
 
 type chatStreamOptions struct {
@@ -171,11 +172,27 @@ func (request chatRequest) toGenerateRequest(id string) (aistudio.GenerateReques
 		if err != nil {
 			return aistudio.GenerateRequest{}, err
 		}
+		if len(content.Parts) == 0 {
+			continue
+		}
 		contents = append(contents, content)
 	}
 	tools, err := mapOpenAITools(request.Tools, request.ToolChoice)
 	if err != nil {
 		return aistudio.GenerateRequest{}, err
+	}
+	if rawJSONConfigured(request.WebSearchOptions) {
+		var options struct {
+			SearchContextSize string          `json:"search_context_size"`
+			UserLocation      json.RawMessage `json:"user_location"`
+		}
+		if err := json.Unmarshal(request.WebSearchOptions, &options); err != nil {
+			return aistudio.GenerateRequest{}, fmt.Errorf("web_search_options must be an object")
+		}
+		if options.SearchContextSize != "" || rawJSONConfigured(options.UserLocation) {
+			return aistudio.GenerateRequest{}, fmt.Errorf("AI Studio Web does not support web_search_options search_context_size or user_location")
+		}
+		tools.Google = appendUnique(tools.Google, "google_search")
 	}
 	config, err := request.generationConfig()
 	if err != nil {

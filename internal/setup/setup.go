@@ -164,14 +164,13 @@ func importChromeAccounts(
 			return err
 		}
 	}
-
+	var accountIDs []string
 	if len(options.profiles) == 0 && len(options.emails) == 0 {
 		accounts, err := chromeauth.Discover(root)
 		if err != nil {
 			return err
 		}
-
-		options.profiles, err = promptChromeProfiles(accounts, input, output)
+		accountIDs, err = promptChromeAccounts(accounts, input, output)
 		if err != nil {
 			return err
 		}
@@ -182,6 +181,7 @@ func importChromeAccounts(
 		Proxy:      options.proxy,
 		Profiles:   options.profiles,
 		Emails:     options.emails,
+		AccountIDs: accountIDs,
 	})
 	if err != nil {
 		return err
@@ -221,7 +221,7 @@ func importChromeAccounts(
 	return nil
 }
 
-func promptChromeProfiles(accounts []chromeauth.Account, input io.Reader, output io.Writer) (setupStrings, error) {
+func promptChromeAccounts(accounts []chromeauth.Account, input io.Reader, output io.Writer) ([]string, error) {
 	available := make([]chromeauth.Account, 0, len(accounts))
 	table := tabwriter.NewWriter(output, 0, 4, 2, ' ', 0)
 
@@ -255,8 +255,7 @@ func promptChromeProfiles(accounts []chromeauth.Account, input io.Reader, output
 	if line == "" {
 		return nil, fmt.Errorf("no accounts selected")
 	}
-
-	selected := make(setupStrings, 0)
+	selected := make([]string, 0)
 	seen := make(map[int]struct{})
 
 	for _, raw := range strings.Split(line, ",") {
@@ -270,7 +269,7 @@ func promptChromeProfiles(accounts []chromeauth.Account, input io.Reader, output
 		}
 
 		seen[index] = struct{}{}
-		selected = append(selected, available[index-1].Profile)
+		selected = append(selected, available[index-1].ID)
 	}
 
 	return selected, nil

@@ -35,24 +35,39 @@ func EncodeGenerateContentRequest(request GenerateRequest, defaults GenerationDe
 	if err != nil {
 		return nil, err
 	}
+	serverSideTools := explicitTools && len(request.Tools.Functions) > 0 && (len(request.Tools.Google) > 0 || request.Tools.GoogleSearch != nil)
 	length := 11
-	if runtime.Timezone != "" {
+	if runtime.Timezone != "" || serverSideTools {
 		length = 14
 	}
 	wire := make([]any, length)
 	wire[0] = wireModelName(request.Model)
 	wire[1] = contents
-	wire[2] = observedSafetySettings()
+	if !defaults.ImageRoute {
+		wire[2] = observedSafetySettings()
+	}
 	wire[3] = config
 	if request.System != "" {
 		wire[5] = encodeSystemInstruction(request.System)
 	}
-	if explicitTools {
+	switch {
+	case explicitTools:
 		wire[6] = tools
+	case defaults.OutputResolution:
+		// Default extended tool fields for models supporting configurable resolution
+		wire[6] = []any{[]any{nil, nil, nil, []any{nil, []any{}}}}
 	}
 	wire[10] = int64(1)
-	if runtime.Timezone != "" {
-		wire[13] = []any{[]any{nil, nil, runtime.Timezone}}
+	if runtime.Timezone != "" || serverSideTools {
+		toolConfig := []any{nil}
+		if runtime.Timezone != "" {
+			toolConfig[0] = []any{nil, nil, runtime.Timezone}
+		}
+		if serverSideTools {
+			// Enable include_server_side_tool_invocations when both built-in tools and function calls are used
+			toolConfig = append(toolConfig, nil, true)
+		}
+		wire[13] = toolConfig
 	}
 	return json.Marshal(wire)
 }
@@ -92,8 +107,11 @@ func encodeGenerationConfig(config GenerationConfig, defaults GenerationDefaults
 		hasReasoningEffort = false
 	}
 	if thinkingBudget != nil && !defaults.ThinkingBudget {
-		if !hasReasoningEffort || !defaults.ThinkingLevel {
+		if !defaults.ThinkingLevel {
 			return nil, fmt.Errorf("model does not support thinking budget")
+		}
+		if !hasReasoningEffort {
+			thinkingLevel = closestSupportedThinkingLevel(thinkingLevelForBudget(*thinkingBudget), defaults.ThinkingLevels)
 		}
 		thinkingBudget = nil
 	}
@@ -134,6 +152,10 @@ func encodeGenerationConfig(config GenerationConfig, defaults GenerationDefaults
 		return nil, err
 	}
 	imageConfig := encodeImageConfig(config.ImageConfig)
+	if defaults.OutputResolution && imageConfig == nil {
+		// Default output resolution for models supporting output resolution
+		imageConfig = []any{nil, "1K"}
+	}
 	speechConfig, err := encodeSpeechConfig(config.SpeechConfig)
 	if err != nil {
 		return nil, err
@@ -221,6 +243,20 @@ func encodeGenerationConfig(config GenerationConfig, defaults GenerationDefaults
 }
 
 var thinkingLevelsByEffort = []int64{4, 1, 2, 3}
+
+// thinkingLevelForBudget converts thinking budget to thinking level based on Gemini OpenAI compatibility tiers (1024, 8192, 24576)
+func thinkingLevelForBudget(budget int64) int64 {
+	switch {
+	case budget <= 0:
+		return 4
+	case budget <= 1024:
+		return 1
+	case budget <= 8192:
+		return 2
+	default:
+		return 3
+	}
+}
 
 func closestSupportedThinkingLevel(requested int64, supported []int64) int64 {
 	requestedRank := slices.Index(thinkingLevelsByEffort, requested)
@@ -330,6 +366,11 @@ func encodeSpeechConfig(config *SpeechConfig) ([]any, error) {
 }
 
 func applyModelMediaDefaults(config GenerationConfig, model Model) GenerationConfig {
+	if model.Capabilities["image_route"] && imageModalityNeedsText(config.ResponseModalities) {
+		// Image output requires requesting text modality as well
+		config.ResponseModalities = []ResponseModality{ResponseModalityImage, ResponseModalityText}
+		return config
+	}
 	if config.ResponseModalities != nil {
 		return config
 	}
@@ -337,9 +378,29 @@ func applyModelMediaDefaults(config GenerationConfig, model Model) GenerationCon
 	case model.Capabilities["speech_route"], model.Capabilities["music_route"]:
 		config.ResponseModalities = []ResponseModality{ResponseModalityAudio}
 	case model.Capabilities["image_route"]:
-		config.ResponseModalities = []ResponseModality{ResponseModalityImage}
+		config.ResponseModalities = []ResponseModality{ResponseModalityImage, ResponseModalityText}
 	}
 	return config
+}
+
+// imageModalityNeedsText checks whether an image model request lacks TEXT modality
+func imageModalityNeedsText(modalities []ResponseModality) bool {
+	if modalities == nil {
+		return true
+	}
+	hasImage := false
+	hasText := false
+	for _, modality := range modalities {
+		switch ResponseModality(strings.ToUpper(strings.TrimSpace(string(modality)))) {
+		case ResponseModalityImage:
+			hasImage = true
+		case ResponseModalityText:
+			hasText = true
+		default:
+			return false
+		}
+	}
+	return hasImage && !hasText
 }
 
 func applySpeechTranscript(contents []Content, model Model, config GenerationConfig) []Content {
@@ -382,6 +443,7 @@ func (c *Client) Generate(ctx context.Context, request GenerateRequest) (<-chan 
 		return nil, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
 	}
 	request.Config = applyModelMediaDefaults(request.Config, entry.model)
+	request.ImageRoute = entry.defaults.ImageRoute
 	request.Contents = applySpeechTranscript(request.Contents, entry.model, request.Config)
 	runtime := RequestContext{}
 	if c.contextProvider != nil {

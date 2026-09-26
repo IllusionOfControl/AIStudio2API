@@ -60,6 +60,10 @@ type GenerationDefaults struct {
 	ThinkingLevel        bool
 	DefaultThinkingLevel int64
 	ThinkingLevels       []int64
+	// ImageRoute indicates an image generation model (official GenerateContent follows extended constraints)
+	ImageRoute bool
+	// OutputResolution indicates support for output resolution (official web sends imageConfig and extended slot)
+	OutputResolution bool
 }
 
 type modelEntry struct {
@@ -253,6 +257,7 @@ func decodeGenerationDefaults(row []json.RawMessage, path string, evidence json.
 	defaults := GenerationDefaults{
 		Thinking: capabilities["thinking"], ThinkingBudget: capabilities["thinking_budget"],
 		ThinkingLevel: capabilities["thinking_level"], DefaultThinkingLevel: 2,
+		ImageRoute: capabilities["image_route"], OutputResolution: capabilities["output_resolution"],
 	}
 	maxOutput, err := optionalIntField(row, 6, path, evidence)
 	if err != nil {

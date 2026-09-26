@@ -64,6 +64,26 @@ var (
 	errAccountLeaseBusy = ErrAccountLeased
 )
 
+// AccountsNotReadyError indicates that all eligible accounts are currently unschedulable
+type AccountsNotReadyError struct {
+	Reasons []string
+}
+
+func (e *AccountsNotReadyError) Error() string {
+	return ErrNoEligibleAccount.Error() + ": " + strings.Join(e.Reasons, "; ")
+}
+
+func (e *AccountsNotReadyError) Unwrap() error {
+	return ErrNoEligibleAccount
+}
+
+// accountStateLabels provides descriptions for unschedulable account states
+var accountStateLabels = map[AccountState]string{
+	AccountAuthRequired: "authentication required",
+	AccountUnavailable:  "unavailable",
+	AccountDisabled:     "disabled",
+}
+
 // AccountConfig represents the fixed minimal configuration in an account directory
 type AccountConfig struct {
 	Label    string `json:"label"`
@@ -928,8 +948,9 @@ func (p *AccountPool) AcquireFor(ctx context.Context, selection AccountSelection
 			continue
 		}
 		if !waitable {
+			err := p.noEligibleErrorLocked(selection)
 			p.mu.Unlock()
-			return nil, ErrNoEligibleAccount
+			return nil, err
 		}
 		changed := p.changed
 		p.mu.Unlock()
@@ -1052,6 +1073,45 @@ func (p *AccountPool) refreshAndValidateLease(
 		}
 	}
 	return true, nil
+}
+
+// NoEligibleError returns an error listing reasons why candidate accounts are unschedulable
+func (p *AccountPool) NoEligibleError(selection AccountSelection) error {
+	if p == nil {
+		return ErrNoEligibleAccount
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.noEligibleErrorLocked(selection)
+}
+
+func (p *AccountPool) noEligibleErrorLocked(selection AccountSelection) error {
+	selection.ModelID = strings.TrimPrefix(strings.TrimSpace(selection.ModelID), "models/")
+	var reasons []string
+	for _, account := range p.accounts {
+		if account == nil || account.Config.Enabled && account.State == AccountReady {
+			continue
+		}
+		if selection.ModelID != "" && !accountSupportsSelection(account, selection) {
+			continue
+		}
+		label, ok := accountStateLabels[account.State]
+		if !ok {
+			label = string(account.State)
+		}
+		if !account.Config.Enabled {
+			label = accountStateLabels[AccountDisabled]
+		}
+		reason := account.ID + " " + label
+		if message := strings.TrimSpace(account.stateMessage); message != "" {
+			reason += " (" + message + ")"
+		}
+		reasons = append(reasons, reason)
+	}
+	if len(reasons) == 0 {
+		return ErrNoEligibleAccount
+	}
+	return &AccountsNotReadyError{Reasons: reasons}
 }
 
 func (p *AccountPool) markStaleAccountUnavailable(account *Account) {

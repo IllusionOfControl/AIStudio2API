@@ -253,8 +253,9 @@ func (admin *runtimeAdmin) ChromeImportProfiles(context.Context) ([]api.ChromeIm
 		if _, exists := existing[email]; exists {
 			continue
 		}
-
+		existing[email] = struct{}{}
 		profiles = append(profiles, api.ChromeImportProfile{
+			ID:          account.ID,
 			Profile:     account.Profile,
 			DisplayName: account.DisplayName,
 			Email:       email,
@@ -266,8 +267,8 @@ func (admin *runtimeAdmin) ChromeImportProfiles(context.Context) ([]api.ChromeIm
 }
 
 func (admin *runtimeAdmin) ImportChromeAccounts(ctx context.Context, input api.ChromeImportInput) ([]api.AdminAccount, error) {
-	if len(input.Profiles) == 0 {
-		return nil, invalidAccount(fmt.Errorf("no Chrome profile selected"))
+	if len(input.AccountIDs) == 0 {
+		return nil, invalidAccount(fmt.Errorf("no Chrome accounts selected"))
 	}
 
 	root, err := chromeauth.DefaultChromeRoot()
@@ -279,7 +280,7 @@ func (admin *runtimeAdmin) ImportChromeAccounts(ctx context.Context, input api.C
 	results, err := chromeauth.Import(ctx, chromeauth.ImportOptions{
 		ChromeRoot: root,
 		Proxy:      admin.effectiveProxy(accountProxy),
-		Profiles:   input.Profiles,
+		AccountIDs: input.AccountIDs,
 	})
 	if err != nil {
 		return nil, err
