@@ -13,7 +13,7 @@ import (
 // OpenBidi binds a bidirectional streaming session to the current generation service lifecycle.
 func (service *trackedService) OpenBidi(ctx context.Context, request aistudio.BidiRequest) (*aistudio.BidiSession, error) {
 	api.SetAccessLogTarget(ctx, request.Model, "")
-
+	request.Model = service.pool.CanonicalModelID(request.Model)
 	requestCtx, cancel, err := service.bidiRequestContext(ctx)
 	if err != nil {
 		api.SetAccessLogError(ctx, err)
@@ -64,7 +64,7 @@ func (service *trackedService) OpenBidi(ctx context.Context, request aistudio.Bi
 
 		expectedGeneration := workerGenerations[accountID]
 		recovered, _, recoveryErr := service.recoverWorkerOnce(
-			accountID, expectedGeneration, recoveredWorkers,
+			recoveryCtx, accountID, expectedGeneration, recoveredWorkers,
 			recoverCurrentGeneration, workerFailed || waaRuntimeFailed,
 		)
 

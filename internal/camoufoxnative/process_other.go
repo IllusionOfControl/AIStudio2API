@@ -15,6 +15,11 @@ func configureBrowserProcess(command *exec.Cmd, _ bool) {
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// attachBrowserProcess relies on process group reclamation on non-Windows platforms.
+func attachBrowserProcess(*exec.Cmd) error {
+	return nil
+}
+
 // terminateBrowserProcess terminates the Camoufox process group.
 func terminateBrowserProcess(ctx context.Context, command *exec.Cmd) error {
 	if command == nil || command.Process == nil {

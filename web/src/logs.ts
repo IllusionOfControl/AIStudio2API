@@ -1,13 +1,13 @@
 import type { AdminLog } from './types'
 
-// LogRow 保存请求的最新状态与完整事件时间线
+// LogRow stores the latest state and full event timeline of a request
 export interface LogRow {
   key: string
   entry: AdminLog
   events: AdminLog[]
 }
 
-// groupLogs 按请求标识合并生命周期并保持服务事件的原始顺序
+// groupLogs merges lifecycles by request ID while preserving original order of service events
 export function groupLogs(logs: AdminLog[]): LogRow[] {
   const rows: LogRow[] = []
   const requests = new Map<string, LogRow>()

@@ -8,7 +8,7 @@ const props = defineProps<{ row: LogRow }>()
 const { t, locale } = useI18n()
 const request = computed(() => props.row.entry.request!)
 
-// number 按当前语言格式化统计数值
+// number formats numeric statistics using the current locale
 function number(value: number, digits = 0): string {
   return value.toLocaleString(locale.value, { maximumFractionDigits: digits })
 }

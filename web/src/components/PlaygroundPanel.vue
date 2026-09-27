@@ -11,6 +11,7 @@ import type {
   PlaygroundTool,
 } from '@/types'
 import UiIcon from './UiIcon.vue'
+import UiSelect from './UiSelect.vue'
 
 const props = defineProps<{
   models: Model[]
@@ -152,7 +153,7 @@ const hasOutput = computed(
     result.text !== '' || result.reasoning !== '' || result.tools !== '' || result.media.length > 0,
 )
 
-// clearMedia 释放浏览器创建的媒体资源
+// clearMedia releases browser-created media resources
 function clearMedia(): void {
   for (const media of result.media) {
     if (media.url.startsWith('blob:')) URL.revokeObjectURL(media.url)
@@ -160,7 +161,7 @@ function clearMedia(): void {
   result.media = []
 }
 
-// appendChunk 追加一次协议解析结果
+// appendChunk appends parsed protocol chunk results
 function appendChunk(chunk: PlaygroundChunk): void {
   result.text += chunk.text
   result.reasoning += chunk.reasoning
@@ -168,7 +169,7 @@ function appendChunk(chunk: PlaygroundChunk): void {
   result.media.push(...chunk.media)
 }
 
-// execute 发送公开协议请求并实时追加结果
+// execute sends public protocol request and appends results in real time
 async function execute(): Promise<void> {
   if (isRunning.value || form.model === '' || form.prompt.trim() === '') return
   const input = { ...form }
@@ -207,7 +208,7 @@ async function execute(): Promise<void> {
   }
 }
 
-// clearConversation 清空当前试用结果
+// clearConversation resets current playground state and results
 function clearConversation(): void {
   controller?.abort()
   clearMedia()
@@ -222,12 +223,12 @@ function clearConversation(): void {
   result.status = 0
 }
 
-// stop 中止当前浏览器请求并触发服务端取消
+// stop aborts current browser request and triggers server-side cancellation
 function stop(): void {
   controller?.abort()
 }
 
-// copyOutput 复制当前可见响应
+// copyOutput copies visible response to clipboard
 async function copyOutput(): Promise<void> {
   await navigator.clipboard.writeText(visibleOutput.value)
   copied.value = true
@@ -410,28 +411,28 @@ onUnmounted(() => {
         <label class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
           t('playground.mode')
         }}</label>
-        <select
+        <UiSelect
           v-model="form.mode"
           class="w-full appearance-none rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
         >
           <option v-for="mode in modes" :key="mode.id" :value="mode.id">
             {{ modeLabel(mode) }}
           </option>
-        </select>
+        </UiSelect>
       </div>
 
       <div>
         <label class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
           t('playground.model')
         }}</label>
-        <select
+        <UiSelect
           v-model="form.model"
           class="w-full appearance-none rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
         >
           <option v-for="model in availableModels" :key="model.id" :value="model.id">
             {{ model.name }}
           </option>
-        </select>
+        </UiSelect>
       </div>
 
       <template v-if="form.mode === 'text'">
@@ -439,21 +440,21 @@ onUnmounted(() => {
           <label class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
             t('playground.protocol')
           }}</label>
-          <select
+          <UiSelect
             v-model="form.protocol"
             class="w-full appearance-none rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
           >
             <option v-for="protocol in protocols" :key="protocol.id" :value="protocol.id">
               {{ protocol.label }}
             </option>
-          </select>
+          </UiSelect>
         </div>
 
         <div>
           <label class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
             t('playground.reasoning')
           }}</label>
-          <select
+          <UiSelect
             v-model="form.reasoning"
             class="w-full appearance-none rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none disabled:opacity-50"
             :disabled="!supportsThinking"
@@ -462,14 +463,14 @@ onUnmounted(() => {
             <option value="low">{{ t('playground.reasoningLow') }}</option>
             <option value="medium">{{ t('playground.reasoningMedium') }}</option>
             <option value="high">{{ t('playground.reasoningHigh') }}</option>
-          </select>
+          </UiSelect>
         </div>
 
         <div>
           <label class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
             t('playground.tool')
           }}</label>
-          <select
+          <UiSelect
             v-model="form.tool"
             class="w-full appearance-none rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white focus:border-blue-500 focus:outline-none"
           >
@@ -477,7 +478,7 @@ onUnmounted(() => {
             <option v-for="tool in availableTools" :key="tool.id" :value="tool.id">
               {{ tool.label }}
             </option>
-          </select>
+          </UiSelect>
         </div>
       </template>
 
@@ -486,7 +487,7 @@ onUnmounted(() => {
           <span class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
             t('playground.imageSize')
           }}</span>
-          <select
+          <UiSelect
             v-model="form.imageSize"
             class="w-full rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white"
           >
@@ -494,13 +495,13 @@ onUnmounted(() => {
             <option value="1024x1024">1024 × 1024</option>
             <option value="1536x1024">1536 × 1024</option>
             <option value="1024x1536">1024 × 1536</option>
-          </select>
+          </UiSelect>
         </label>
         <label class="block">
           <span class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
             t('playground.imageQuality')
           }}</span>
-          <select
+          <UiSelect
             v-model="form.imageQuality"
             class="w-full rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white"
           >
@@ -508,7 +509,7 @@ onUnmounted(() => {
             <option value="low">1K</option>
             <option value="medium">2K</option>
             <option value="high">4K</option>
-          </select>
+          </UiSelect>
         </label>
       </div>
 
@@ -516,12 +517,12 @@ onUnmounted(() => {
         <label class="mb-2 block text-xs font-bold text-gray-500 uppercase">{{
           t('playground.voice')
         }}</label>
-        <select
+        <UiSelect
           v-model="form.voice"
           class="w-full rounded border border-[#30363d] bg-[#0d1117] px-2 py-1 text-xs text-white"
         >
           <option v-for="voice in voices" :key="voice" :value="voice">{{ voice }}</option>
-        </select>
+        </UiSelect>
       </div>
 
       <div v-if="form.mode === 'text' || form.mode === 'speech'">

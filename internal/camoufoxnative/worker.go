@@ -275,6 +275,9 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 	if interceptID == "" {
 		return errors.New("invalid GenerateContent intercept ID")
 	}
+	if err := client.waitFor(ctx, contextID, runButtonEnabledExpression, 15*time.Second); err != nil {
+		return fmt.Errorf("waiting for AI Studio run button to be enabled: %w", err)
+	}
 	if _, err := client.evaluate(ctx, contextID, submitPromptExpression); err != nil {
 		return fmt.Errorf("submitting prompt on official page: %w", err)
 	}

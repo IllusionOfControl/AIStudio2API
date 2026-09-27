@@ -94,8 +94,17 @@ func encodeGenerationConfig(config GenerationConfig, defaults GenerationDefaults
 		thinkingLevel = 3
 	case "minimal":
 		thinkingLevel = 4
+	case "none":
+		thinkingLevel = 4
+		if !defaults.ThinkingLevel {
+			hasReasoningEffort = false
+			if defaults.ThinkingBudget && thinkingBudget == nil {
+				zero := int64(0)
+				thinkingBudget = &zero
+			}
+		}
 	default:
-		return nil, fmt.Errorf("reasoning effort must be minimal, low, medium, or high")
+		return nil, fmt.Errorf("reasoning effort must be none, minimal, low, medium, or high")
 	}
 	if hasReasoningEffort && defaults.ThinkingLevel {
 		thinkingLevel = closestSupportedThinkingLevel(thinkingLevel, defaults.ThinkingLevels)

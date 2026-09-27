@@ -45,6 +45,12 @@ func fillPromptExpression(prompt string) string {
 })()`, encoded, encoded)
 }
 
+// runButtonEnabledExpression checks whether the AI Studio Run button is visible and enabled
+const runButtonEnabledExpression = `(() => {` + pageDOMHelpers + `
+  const button = uniqueVisible('ms-run-button button', 'Run button');
+  return Boolean(button && buttonEnabled(button));
+})()`
+
 // submitPromptExpression clicks the currently visible and enabled run button.
 const submitPromptExpression = `(() => {` + pageDOMHelpers + `
   const button = uniqueVisible('ms-run-button button', 'official Run button');
