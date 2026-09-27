@@ -14,25 +14,31 @@
 </p>
 
 <p>
-  多账户轮询 &nbsp;•&nbsp;
-  Nano Banana 图片生成 &nbsp;•&nbsp;
-  Google 工具<br>
-  Veo 视频生成 &nbsp;•&nbsp;
-  Gemini TTS 语音生成
+  Playground + Build 双额度通道 &nbsp;•&nbsp;
+  多账户高并发 &nbsp;•&nbsp;
+  Camoufox 与纯 Go 双 WAA 后端<br>
+  Claude Code、Codex 等 agent 客户端 &nbsp;•&nbsp;
+  Nano Banana、Veo、TTS 与 Omni
 </p>
 
 </div>
 
 ---
 
+## 核心能力
+
+- **双额度通道**: 每个账户同时拥有 Playground 与 Build 应用代理两份独立额度，`UPSTREAM_CHANNELS` 可单独或同时启用；一个通道触发限额后，同一账户由另一个通道继续
+- **多账户高并发**: 识别 Free、Pro、Ultra 与 Plus 权益，按实时模型目录在账户间轮询或优先复用
+- **两种 WAA 后端**: 默认由 Camoufox 持有官方 WAA 生命周期；设置 `WAA_BACKEND=go` 后由纯 Go 生成官方 proof，运行时不下载、不启动浏览器
+- **四套 API 协议**: OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 与 Gemini GenerateContent
+- **主流 agent 客户端**: 支持 Claude Code、Codex、OpenCode、pi、omp、OpenClaw、Hermes 的文件读写工具调用，Claude Code、Codex、omp 的原生联网搜索可直接使用
+
 ## 特性
 
-- **四套 API 协议**: 支持 OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 和 Gemini GenerateContent
-- **多账户运行**: 识别 Free、Pro、Ultra 与 Plus 权益，在合资格账户间轮询或优先复用可用账户
 - **原生流式响应**: 实时输出正文、思考摘要、函数调用、Google 工具、媒体和 usage
 - **TTS 语音生成**: 支持 Gemini TTS 模型的单/多说话人音频生成
 - **图片生成**: 支持 Nano Banana 图片生成
-- **视频生成**: 支持 Veo 视频生成和图片转视频
+- **视频生成**: 支持 Veo 视频生成和图片转视频；Gemini Omni 通过四套生成接口接收文本、图片与视频输入，输出文本与 MP4 视频
 - **YouTube 输入**: 粘贴视频 URL 即可作为外部视频附件读取
 - **智能模型切换**: 从 AI Studio 实时发现模型并按 `model` 字段路由
 - **Google 工具**: 支持 Search、Image Search、URL Context、Code Execution 和 Maps
@@ -122,7 +128,7 @@ Linux 与 macOS 首次运行同样会自动准备对应平台的 Camoufox。
    ./aistudio2api setup --login
    ```
 
-   登录完成后会从 AI Studio 页面读取 Google 邮箱。账户保存到 `.env` 中 `AISTUDIO_AUTH_STATES` 指向的目录；语言和时区默认读取当前电脑设置，也可以通过 `--locale`、`--timezone` 指定。
+   登录完成后会从 AI Studio 页面读取 Google 邮箱，并为账户授权 Google Drive。账户保存到 `.env` 中 `AISTUDIO_AUTH_STATES` 指向的目录；语言和时区默认读取当前电脑设置，也可以通过 `--locale`、`--timezone` 指定。
 
 2. **启动图形界面**:
    - Windows 双击 `start.bat`
@@ -133,7 +139,7 @@ Linux 与 macOS 首次运行同样会自动准备对应平台的 Camoufox。
 3. **添加其他账户**:
    - 打开“账户”页面
    - “Chrome 批量导入”可多选本机 Chrome 账户
-   - “浏览器登录”会打开独立 Camoufox 窗口，登录完成后自动识别邮箱并保存
+   - “浏览器登录”会打开独立 Camoufox 窗口，登录完成后自动识别邮箱、授权 Google Drive 并保存；Google 要求验证身份时，在该窗口或手机上确认
 
 4. **启动 API**:
    - 点击“启动服务”启动数据面
@@ -254,7 +260,7 @@ providers:
 | 音乐 | Gemini `generateContent` + `responseModalities: ["AUDIO"]` |
 | 视频 | `POST /v1/videos`、`GET /v1/videos/{id}`、`GET /v1/videos/{id}/content` |
 | Gemini 视频 | `POST /v1beta/models/{model}:predictLongRunning`、`GET /v1beta/operations/{id}` |
-| Live / Robotics | `GET /v1/live`、`GET /v1/robotics/stream` |
+| Live（含实时翻译与实时转录）/ Robotics | `GET /v1/live`、`GET /v1/robotics/stream` |
 
 四套生成接口均可按各自协议字段启用 Search、Image Search、URL Context、Code Execution 和 Maps。Files、Transcribe、Live、Robotics 的请求与事件格式见 [Google AI Studio 协议规范](docs/protocol.md)。
 
@@ -299,7 +305,7 @@ curl http://127.0.0.1:2048/v1beta/models/gemini-2.5-flash-preview-tts:generateCo
   }' --output speech.json
 ```
 
-可用语音由实时模型目录中的 `capability_options.voices` 返回。
+可用语音由实时模型目录中的 `capability_options.voices` 返回。`gemini-3.8-flash-tts` 等带 `speech_metadata` 能力的模型同样接受上面的 `说话人: 台词` 写法，也可以为每个文本 part 设置 `speechMetadata.speaker` 与 `speechMetadata.style`，并用 `multiSpeakerVoiceConfig.mode` 选择 `VERBATIM` 或 `CONVERSATIONAL`；OpenAI `instructions` 在这些模型上作为语音风格。
 
 ### 图片生成 (Nano Banana)
 
@@ -408,7 +414,9 @@ cp .env.example .env
 | `MAX_ACTIVE_WORKERS` | `10` | 高峰期最多同时运行的 Worker 数 |
 | `WARM_STARTUP_CONCURRENCY` | `2` | 同时初始化的预热账户数 |
 | `PER_ACCOUNT_CONCURRENCY` | `2` | 单账号同时执行的请求数 |
-| `ROUTING_STRATEGY` | `round-robin` | 账户路由策略：`round-robin`（轮询分发，均摊速率限制与负载）；`fill-first`（粘性优先，满载或冷却时溢出） |
+| `ROUTING_STRATEGY` | `round-robin` | `round-robin` 轮询；`fill-first` 账号粘性优先 |
+| `UPSTREAM_CHANNELS` | `playground,build` | 生成请求使用的上游通道，可只保留其一 |
+| `WAA_BACKEND` | `camoufox` | `camoufox` 在 Camoufox 页面运行 WAA；`go` 在服务进程内运行 WAA，不下载也不启动 Camoufox |
 | `TEMPORARY_CHAT` | `false` | WAA 预热页是否使用临时对话 |
 | `HEADLESS` | `true` | Camoufox 是否启用无头模式（`true` 后台静默；`false` 显示浏览器窗口） |
 | `CAMOUFOX_PATH` | 空 | 自定义 Camoufox 浏览器可执行文件路径（可选） |
@@ -438,6 +446,7 @@ cp .env.example .env
 | `auth/<Google 邮箱>/account.json` | 账户邮箱、代理、语言、时区和启用状态 |
 | `auth/<Google 邮箱>/storage-state.json` | Google Cookie 与认证续签材料 |
 | `auth/<Google 邮箱>/runtime-state.json` | 权益等级、模型资格、冷却状态与资源所属账户 |
+| `auth/<Google 邮箱>/camoufox-cache/` | 该账户浏览器的网页缓存，服务停止时可删除 |
 | `auth/.leases/<Google 邮箱>.lock` | 同一账户目录的跨进程占用锁 |
 | `[用户缓存]/AIStudio2API/runtime-leases/<Google 邮箱>.lock` | 当前电脑上该邮箱的 WAA Worker 占用锁 |
 
@@ -449,6 +458,8 @@ cp .env.example .env
 
 - [开发与贡献](docs/development.md)
 - [Google AI Studio 协议规范](docs/protocol.md)
+- [WAA 实现](docs/waa.md)
+- [Build 通道](docs/build.md)
 - [运行日志说明](docs/logging.md)
 - [可复用逆向开发指南](docs/reverse-engineering.md)
 
@@ -459,6 +470,8 @@ cp .env.example .env
 本项目使用 [Camoufox](https://camoufox.com/) 浏览器来降低被检测为自动化脚本的风险。Camoufox 基于 Firefox，通过修改底层实现来保持真实的设备指纹。
 
 Go 负责编码、调度、流式解码与公开协议；受 WAA 保护的 `GenerateContent` 通过账户固定指纹 Camoufox 页面发送，保留原生 Firefox TLS/HTTP2、请求头、Cookie 与页面指纹。
+
+`WAA_BACKEND=go` 时，WAA 在服务进程内运行，按账户指纹模拟 Firefox 页面环境并以 Firefox 请求头直接发送，运行时不下载也不启动 Camoufox。账户页的浏览器登录仍使用 Camoufox，首次登录时按需准备。
 
 ### 使用限制
 
@@ -517,12 +530,7 @@ netsh int ipv4 add excludedportrange protocol=tcp startport=2048 numberofports=1
 - ✅ **Go 语言重构**: 将核心代理服务迁移至 Go 以提升并发性能与降低资源占用
 - ✅ **多Worker负载均衡**: 支持多 Google 账号轮询池，提高并发限额与稳定性
 
-### 纯协议 WAA 运行时
+### 纯 Go WAA 运行时
 
-目标是完整逆向并复现 WAA VM，由 Go 独立执行 dynamic program、interpreter、challenge、persistent state、snapshot 与 proof 全链路。最终生产运行期只保留 Go 协议实现，无 Camoufox 进程、DOM 环境和 AI Studio 前端 bundle 依赖。
-
-| 阶段 | 交付内容 |
-| --- | --- |
-| 协议固化 | 归档 dynamic program、challenge、状态迁移、snapshot 与 proof 的完整输入输出，建立可重复验证的协议样本 |
-| Go 执行器 | 实现 dynamic program 加载、interpreter、challenge 求值、persistent state、snapshot 恢复与 proof 生成，并与协议样本逐项一致 |
-| 运行时切换 | 将账户初始化和 proof 刷新接入 Go 原生运行时，通过全部已知 challenge 验证后删除 Camoufox、DOM 与前端 bundle 运行链路 |
+- ✅ **纯 Go 后端**: `WAA_BACKEND=go` 在服务进程内执行官方 interpreter 与 program，按账户指纹模拟 Firefox 页面环境，运行时不下载、不启动 Camoufox；账户登录仍使用 Camoufox
+- **Firefox 引擎细节**: 补齐 `Intl` 格式化、正则字面量的全局解析时机与 `RegExp.prototype` 的 Symbol 键顺序

@@ -347,6 +347,12 @@ func validateLeaseSelection(lease *AccountLease, selection AccountSelection) err
 		}
 	}
 	modelID := strings.TrimPrefix(strings.TrimSpace(selection.ModelID), "models/")
+	if lease.Channel() == ChannelBuild {
+		if modelID != "" && !lease.pool.channelSupportsLocked(account, ChannelBuild, selection) {
+			return fmt.Errorf("context leased account %s Build channel does not support model %s", account.ID, modelID)
+		}
+		return nil
+	}
 	if modelID != "" && !account.SupportsModel(modelID) {
 		return fmt.Errorf("context leased account %s does not support model %s", account.ID, modelID)
 	}

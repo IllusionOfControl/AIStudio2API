@@ -4,7 +4,7 @@ import pluginVue from 'eslint-plugin-vue'
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
-// eslintConfig 定义 Vue 和 TypeScript 的统一静态检查
+// eslintConfig defines unified linting rules for Vue and TypeScript
 export default tseslint.config(
   {
     ignores: ['node_modules', '../internal/webui/dist'],

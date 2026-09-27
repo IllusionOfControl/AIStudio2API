@@ -14,25 +14,31 @@
 </p>
 
 <p>
-  Multi-Account Rotation &nbsp;•&nbsp;
-  Nano Banana Image Generation &nbsp;•&nbsp;
-  Google Tools<br>
-  Veo Video Generation &nbsp;•&nbsp;
-  Gemini TTS Speech Synthesis
+  Playground + Build Dual Quota Channels &nbsp;•&nbsp;
+  High-Concurrency Multi-Account &nbsp;•&nbsp;
+  Camoufox and Pure Go WAA Backends<br>
+  Claude Code, Codex, and Other Agent Clients &nbsp;•&nbsp;
+  Nano Banana, Veo, TTS, and Omni
 </p>
 
 </div>
 
 ---
 
+## Core Capabilities
+
+- **Dual Quota Channels**: Every account has separate Playground and Build app proxy quotas, and `UPSTREAM_CHANNELS` enables either or both; when one channel hits its limit, the same account continues on the other
+- **High-Concurrency Multi-Account**: Detects Free, Pro, Ultra, and Plus benefits and routes across accounts by the live model catalog with round-robin or fill-first
+- **Two WAA Backends**: Camoufox holds the official WAA lifecycle by default; with `WAA_BACKEND=go`, pure Go generates the official proof and no browser is downloaded or launched at runtime
+- **Four API Protocols**: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini GenerateContent
+- **Mainstream Agent Clients**: Works with Claude Code, Codex, OpenCode, pi, omp, OpenClaw, and Hermes, including file read and write tool calls; native web search works in Claude Code, Codex, and omp
+
 ## Features
 
-- **Four API Protocols**: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini GenerateContent
-- **Multi-Account Runtime**: Detects Free, Pro, Ultra, and Plus benefits and selects eligible accounts with round-robin or fill-first routing
 - **Native Streaming**: Text, reasoning summaries, function calls, Google tools, media, and usage
 - **TTS Speech Generation**: Gemini TTS models for single-speaker and multi-speaker audio
 - **Image Generation**: Nano Banana image generation
-- **Video Generation**: Veo video generation and image-to-video
+- **Video Generation**: Veo video generation and image-to-video; Gemini Omni accepts text, image, and video input and returns text and MP4 video through the four generation APIs
 - **YouTube Input**: Paste a video URL to attach and read the external video
 - **Smart Model Switching**: Discover models from AI Studio and route through the `model` field
 - **Google Tools**: Search, Image Search, URL Context, Code Execution, and Maps
@@ -122,7 +128,7 @@ The first Linux or macOS launch also prepares the matching Camoufox build automa
    ./aistudio2api setup --login
    ```
 
-   The Google email is read from AI Studio after login. The account is saved under the path configured by `AISTUDIO_AUTH_STATES` in `.env`. Locale and timezone default to the current computer and can be set with `--locale` and `--timezone`.
+   The Google email is read from AI Studio after login, and Google Drive is authorized for the account. The account is saved under the path configured by `AISTUDIO_AUTH_STATES` in `.env`. Locale and timezone default to the current computer and can be set with `--locale` and `--timezone`.
 
 2. **Start the management UI**:
    - Double-click `start.bat` on Windows
@@ -133,7 +139,7 @@ The first Linux or macOS launch also prepares the matching Camoufox build automa
 3. **Add another account**:
    - Open Accounts
    - "Import Chrome accounts" supports selecting multiple local Chrome accounts
-   - "Browser login" opens an isolated Camoufox window and saves the detected email after login
+   - "Browser login" opens an isolated Camoufox window, detects the email after login, authorizes Google Drive, and saves the account; when Google asks to verify your identity, confirm it in that window or on your phone
 
 4. **Start the API**:
    - Click "Start service" to start the data plane
@@ -254,7 +260,7 @@ Main endpoints:
 | Music | Gemini `generateContent` with `responseModalities: ["AUDIO"]` |
 | Video | `POST /v1/videos`, `GET /v1/videos/{id}`, `GET /v1/videos/{id}/content` |
 | Gemini Video | `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/operations/{id}` |
-| Live / Robotics | `GET /v1/live`, `GET /v1/robotics/stream` |
+| Live (including live translation and live transcription) / Robotics | `GET /v1/live`, `GET /v1/robotics/stream` |
 
 All four generation APIs can enable Search, Image Search, URL Context, Code Execution, and Maps through their protocol fields. Request and event formats for Files, Transcribe, Live, and Robotics are documented in the [Google AI Studio protocol specification](docs/protocol.md).
 
@@ -299,7 +305,7 @@ curl http://127.0.0.1:2048/v1beta/models/gemini-2.5-flash-preview-tts:generateCo
   }' --output speech.json
 ```
 
-Available voices are returned by `capability_options.voices` in the live model catalog.
+Available voices are returned by `capability_options.voices` in the live model catalog. Models with the `speech_metadata` capability, such as `gemini-3.8-flash-tts`, accept the same `Speaker: line` script, and each text part can also set `speechMetadata.speaker` and `speechMetadata.style`, with `multiSpeakerVoiceConfig.mode` selecting `VERBATIM` or `CONVERSATIONAL`; OpenAI `instructions` become the speech style on these models.
 
 ### Image Generation (Nano Banana)
 
@@ -408,7 +414,9 @@ cp .env.example .env
 | `MAX_ACTIVE_WORKERS` | `10` | Maximum workers active during peak load |
 | `WARM_STARTUP_CONCURRENCY` | `2` | Accounts initialized concurrently during prewarming |
 | `PER_ACCOUNT_CONCURRENCY` | `2` | Concurrent requests allowed per account |
-| `ROUTING_STRATEGY` | `round-robin` | Routing strategy: `round-robin` (balances load & rate limits across accounts); `fill-first` (sticky routing, spills over when full/cooling down) |
+| `ROUTING_STRATEGY` | `round-robin` | `round-robin` rotates accounts; `fill-first` reuses the first available account |
+| `UPSTREAM_CHANNELS` | `playground,build` | Upstream channels for generation requests; either one can be used alone |
+| `WAA_BACKEND` | `camoufox` | `camoufox` runs WAA in a Camoufox page; `go` runs WAA inside the service process and neither downloads nor starts Camoufox |
 | `TEMPORARY_CHAT` | `false` | Use Temporary Chat for the WAA prewarm page |
 | `HEADLESS` | `true` | Run Camoufox in headless mode (`true` for silent background; `false` to display browser window) |
 | `CAMOUFOX_PATH` | empty | Custom path to Camoufox executable (optional) |
@@ -438,6 +446,7 @@ Authentication files are stored in `auth/` by default:
 | `auth/<Google email>/account.json` | Account email, proxy, locale, timezone, and enabled state |
 | `auth/<Google email>/storage-state.json` | Google cookies and authentication renewal material |
 | `auth/<Google email>/runtime-state.json` | Benefit tier, model eligibility, cooldowns, and resource ownership |
+| `auth/<Google email>/camoufox-cache/` | Web cache of that account's browser; can be deleted while the service is stopped |
 | `auth/.leases/<Google email>.lock` | Cross-process lease for the account directory |
 | `[user cache]/AIStudio2API/runtime-leases/<Google email>.lock` | WAA Worker lease for that email on the current computer |
 
@@ -449,6 +458,8 @@ The Accounts page supports Chrome batch import and isolated Camoufox login. `rea
 
 - [Development and contribution](docs/development.md)
 - [Google AI Studio protocol specification](docs/protocol.md)
+- [WAA implementation](docs/waa.md)
+- [Build channel](docs/build.md)
 - [Runtime logging](docs/logging.md)
 - [Reusable reverse-engineering development guide](docs/reverse-engineering.md)
 
@@ -459,6 +470,8 @@ The Accounts page supports Chrome batch import and isolated Camoufox login. `rea
 This project uses [Camoufox](https://camoufox.com/) to reduce automation detection. Camoufox is based on Firefox and changes lower-level browser behavior to retain a realistic device fingerprint.
 
 Go handles encoding, scheduling, streaming decode, and public protocols. WAA-protected `GenerateContent` requests are sent by the account's fingerprinted Camoufox page, preserving the native Firefox TLS/HTTP2 stack, headers, cookies, and page fingerprint.
+
+With `WAA_BACKEND=go`, WAA runs inside the service process, emulates the Firefox page environment from the account fingerprint, and sends requests with Firefox request headers; Camoufox is neither downloaded nor started at runtime. Browser login on the Accounts page still uses Camoufox and prepares it on first login.
 
 ### Limitations
 
@@ -517,12 +530,7 @@ Issues and Pull Requests are welcome!
 - ✅ **Go Refactoring**: Migrate core proxy service to Go for improved concurrency and reduced resource usage
 - ✅ **Multi-Worker Load Balancing**: Support multi-Google account rotation pool for higher concurrency limits
 
-### Pure-Protocol WAA Runtime
+### Pure Go WAA Runtime
 
-The target is a complete reverse-engineered WAA VM that independently executes the dynamic program, interpreter, challenge, persistent state, snapshot, and proof pipeline in Go. The final production runtime contains only the Go protocol implementation, with no Camoufox process, DOM environment, or AI Studio frontend bundle dependency.
-
-| Stage | Deliverable |
-| --- | --- |
-| Protocol fixtures | Archive complete inputs and outputs for the dynamic program, challenges, state transitions, snapshots, and proofs as reproducible protocol fixtures |
-| Go executor | Implement dynamic-program loading, interpretation, challenge evaluation, persistent state, snapshot restoration, and proof generation with fixture-level parity |
-| Runtime cutover | Move account initialization and proof refresh to the native Go runtime, validate every known challenge, then remove the Camoufox, DOM, and frontend-bundle runtime path |
+- ✅ **Pure Go backend**: `WAA_BACKEND=go` runs the official interpreter and program inside the service process, emulating the Firefox page environment from each account fingerprint; it neither downloads nor starts Camoufox at runtime, while account login still uses Camoufox
+- **Firefox engine details**: implement `Intl` formatting, the global resolution timing of regular-expression literals, and the Symbol key order of `RegExp.prototype`

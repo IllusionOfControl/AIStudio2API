@@ -65,7 +65,9 @@ func (driver *NativeLoginDriver) Login(ctx context.Context, request IsolatedLogi
 	}); err != nil {
 		return IsolatedLoginResult{}, err
 	}
-	return IsolatedLoginResult{StorageState: state, Email: result.Email, VerifiedAt: result.VerifiedAt}, nil
+	return IsolatedLoginResult{
+		StorageState: state, Email: result.Email, VerifiedAt: result.VerifiedAt, DriveError: result.DriveError,
+	}, nil
 }
 
 // Verify uses headless isolated Camoufox to verify existing authentication state

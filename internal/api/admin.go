@@ -12,6 +12,7 @@ import (
 // AdminService defines authoritative state operations required by the admin interface.
 type AdminService interface {
 	Status(context.Context) (AdminStatus, error)
+	Models(context.Context) ([]aistudio.Model, error)
 	Accounts(context.Context) ([]AdminAccount, error)
 	CreateAccount(context.Context, AccountCreateInput) (AdminAccount, error)
 	ChromeImportProfiles(context.Context) ([]ChromeImportProfile, error)
@@ -73,6 +74,7 @@ type RequestLog struct {
 	Parameters      map[string]string `json:"parameters,omitempty"`
 	FirstEventMS    float64           `json:"first_event_ms,omitempty"`
 	UpstreamBytes   int64             `json:"upstream_bytes,omitempty"`
+	Channel         string            `json:"channel,omitempty"`
 }
 
 // RequestLogUsage distinguishes input, thinking, reply, and end-to-end output token rates.
@@ -107,6 +109,7 @@ type AccessLog struct {
 	Path            string
 	Model           string
 	Account         string
+	Channel         string
 	FinishReason    string
 	Error           string
 	Canceled        bool
@@ -171,29 +174,32 @@ type ChromeImportInput struct {
 
 // RuntimeConfig represents global runtime configuration.
 type RuntimeConfig struct {
-	AuthStates                string `json:"auth_states"`
-	ListenAddr                string `json:"listen_addr"`
-	APIKey                    string `json:"proxy_api_key"`
-	ActiveListenAddr          string `json:"active_listen_addr"`
-	ActiveAPIKey              string `json:"active_proxy_api_key"`
-	ManagementRestartRequired bool   `json:"management_restart_required"`
-	ServiceRestartRequired    bool   `json:"service_restart_required"`
-	Proxy                     string `json:"proxy"`
-	InitTimeout               string `json:"init_timeout"`
-	RequestTimeout            string `json:"request_timeout"`
-	WarmWorkerLimit           int    `json:"warm_worker_limit"`
-	MaxActiveWorkers          int    `json:"max_active_workers"`
-	WarmStartupConcurrency    int    `json:"warm_startup_concurrency"`
-	PerAccountConcurrency     int    `json:"per_account_concurrency"`
-	RoutingStrategy           string `json:"routing_strategy"`
-	TemporaryChat             bool   `json:"temporary_chat"`
-	Headless                  bool   `json:"headless"`
+	AuthStates                string   `json:"auth_states"`
+	ListenAddr                string   `json:"listen_addr"`
+	APIKey                    string   `json:"proxy_api_key"`
+	ActiveListenAddr          string   `json:"active_listen_addr"`
+	ActiveAPIKey              string   `json:"active_proxy_api_key"`
+	ManagementRestartRequired bool     `json:"management_restart_required"`
+	ServiceRestartRequired    bool     `json:"service_restart_required"`
+	Proxy                     string   `json:"proxy"`
+	InitTimeout               string   `json:"init_timeout"`
+	RequestTimeout            string   `json:"request_timeout"`
+	WarmWorkerLimit           int      `json:"warm_worker_limit"`
+	MaxActiveWorkers          int      `json:"max_active_workers"`
+	WarmStartupConcurrency    int      `json:"warm_startup_concurrency"`
+	PerAccountConcurrency     int      `json:"per_account_concurrency"`
+	RoutingStrategy           string   `json:"routing_strategy"`
+	UpstreamChannels          []string `json:"upstream_channels"`
+	TemporaryChat             bool     `json:"temporary_chat"`
+	Headless                  bool     `json:"headless"`
+	WAABackend                string   `json:"waa_backend"`
 }
 
 // AdminCooldown represents account model cooldown.
 type AdminCooldown struct {
 	AccountID    string    `json:"account_id"`
 	AccountLabel string    `json:"account_label"`
+	Channel      string    `json:"channel"`
 	ModelID      string    `json:"model_id"`
 	Until        time.Time `json:"until"`
 	Reason       string    `json:"reason,omitempty"`
@@ -205,6 +211,7 @@ type AdminRequest struct {
 	Model        string    `json:"model"`
 	AccountID    string    `json:"account_id"`
 	AccountLabel string    `json:"account_label"`
+	Channel      string    `json:"channel,omitempty"`
 	State        string    `json:"state"`
 	StartedAt    time.Time `json:"started_at"`
 }
@@ -257,7 +264,7 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleAdminModels(w http.ResponseWriter, r *http.Request) {
-	models, err := s.service.Models(r.Context())
+	models, err := s.config.Admin.Models(r.Context())
 	if err != nil {
 		writeAdminUpstreamError(w, err)
 		return

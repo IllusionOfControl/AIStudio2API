@@ -5,7 +5,7 @@ import { fileURLToPath, URL } from 'node:url'
 
 const serviceTarget = 'http://127.0.0.1:2048'
 
-// defineConfig 定义前端构建和本地联调入口
+// defineConfig defines frontend build and local debugging entry
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
   resolve: {

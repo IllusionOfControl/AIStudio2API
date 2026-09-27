@@ -11,10 +11,10 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/camoufoxnative"
 )
 
-// NativeWorker adapts pure-Go Camoufox runtime as a WAA preparer
+// NativeWorker adapts Camoufox or pure-Go WAA runtime as a protected request preparer
 type NativeWorker struct {
 	accountID   string
-	runtime     *camoufoxnative.Worker
+	runtime     workerRuntime
 	operationMu sync.Mutex
 	stateMu     sync.RWMutex
 	state       WorkerState
@@ -23,7 +23,7 @@ type NativeWorker struct {
 var _ ProtectedPreparer = (*NativeWorker)(nil)
 var _ ProtocolHeaderProvider = (*NativeWorker)(nil)
 
-// NewNativeWorker starts a pure-Go Camoufox runtime for a single account
+// NewNativeWorker starts a Camoufox WAA runtime for a single account
 func NewNativeWorker(ctx context.Context, accountID string, options camoufoxnative.Options) (*NativeWorker, error) {
 	if accountID == "" {
 		return nil, fmt.Errorf("missing account ID")
@@ -46,7 +46,7 @@ func NewNativeWorker(ctx context.Context, accountID string, options camoufoxnati
 	}, nil
 }
 
-// Prepare generates fresh proof and writes to GenerateContent slot 5
+// Prepare generates fresh proof and writes to the request's designated WAA field
 func (worker *NativeWorker) Prepare(ctx context.Context, request ProtectedRequest) (PreparedProtectedRequest, error) {
 	worker.operationMu.Lock()
 	defer worker.operationMu.Unlock()
@@ -99,7 +99,7 @@ func (worker *NativeWorker) Prepare(ctx context.Context, request ProtectedReques
 	}, nil
 }
 
-// SendProtected streams the prepared request via the account's fixed-fingerprint Camoufox
+// SendProtected streams the prepared request via the account's WAA runtime
 func (worker *NativeWorker) SendProtected(ctx context.Context, request ProtectedRequest) (*RPCResponse, error) {
 	response, err := worker.runtime.SendProtected(ctx, request.URL, request.Headers, request.Body)
 	if err != nil {
@@ -115,7 +115,7 @@ func (worker *NativeWorker) SendProtected(ctx context.Context, request Protected
 	}, nil
 }
 
-// BrowserStorageState returns current cookie state of fixed-fingerprint browser
+// BrowserStorageState returns the current cookie state of the account's WAA runtime
 func (worker *NativeWorker) BrowserStorageState(ctx context.Context) (StorageState, error) {
 	encoded, err := worker.runtime.StorageCookies(ctx)
 	if err != nil {
@@ -140,14 +140,14 @@ func (worker *NativeWorker) ProtocolHeaders(ctx context.Context, accountID strin
 	return worker.runtime.ProtocolHeaders(ctx)
 }
 
-// State returns pure-Go runtime state
+// State returns the account's WAA runtime state
 func (worker *NativeWorker) State() WorkerState {
 	worker.stateMu.RLock()
 	defer worker.stateMu.RUnlock()
 	return worker.state
 }
 
-// Close shuts down the pure-Go runtime
+// Close shuts down the account's WAA runtime
 func (worker *NativeWorker) Close() error {
 	worker.operationMu.Lock()
 	defer worker.operationMu.Unlock()

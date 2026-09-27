@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/mail"
 	"os"
 	"path/filepath"
@@ -65,6 +66,26 @@ var (
 	ErrResourceNotFound = errors.New("resource account mapping not found")
 	errAccountLeaseBusy = ErrAccountLeased
 )
+
+// AllCoolingError indicates that all eligible accounts for the requested model are cooling down and will not recover soon.
+type AllCoolingError struct {
+	ModelID string
+	Until   time.Time
+}
+
+func (e *AllCoolingError) Error() string {
+	return fmt.Sprintf("all eligible accounts for model %s are cooling down, earliest recovery time %s", e.ModelID, e.Until.Local().Format(time.RFC3339))
+}
+
+// HTTPStatus returns public status code corresponding to quota exhaustion.
+func (e *AllCoolingError) HTTPStatus() int {
+	return http.StatusTooManyRequests
+}
+
+// ErrorCode returns OpenAI-compatible rate limit error code.
+func (e *AllCoolingError) ErrorCode() string {
+	return "rate_limit_exceeded"
+}
 
 // AccountsNotReadyError indicates that all eligible accounts are currently unschedulable
 type AccountsNotReadyError struct {
@@ -164,6 +185,7 @@ type Account struct {
 	modelAccessGeneration uint64
 	stateMessage          string
 	initializedAt         time.Time
+	buildModels           []Model
 }
 
 // AccountStatus represents the sanitized account status used by the management interface
@@ -191,6 +213,7 @@ type AccountSelection struct {
 	AccountID         string
 	ResourceID        string
 	AllowedAccountIDs []string
+	PlaygroundOnly    bool
 }
 
 const preferredBootstrapModelID = "gemini-flash-latest"
@@ -237,6 +260,8 @@ type AccountPool struct {
 	perAccountConcurrency int
 	routingStrategy       string
 	lastPicked            map[string]string
+	lastPickedChannel     map[string]Channel
+	channels              []Channel
 	changed               chan struct{}
 }
 
@@ -249,6 +274,7 @@ type AccountLease struct {
 	modelAccessGeneration uint64
 	checkedAt             time.Time
 	refreshRuntime        bool
+	channel               Channel
 	operation             sync.Mutex
 	released              bool
 	once                  sync.Once
@@ -617,17 +643,27 @@ func accountSupportsSelection(account *Account, selection AccountSelection) bool
 	return false
 }
 
+// CatalogModels returns the complete catalog, with each model annotated with channels that enabled accounts can invoke.
+func (p *AccountPool) CatalogModels(models []Model) []Model {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	catalog := make([]Model, len(models))
+	for index, model := range models {
+		model.Channels = p.modelChannelsLocked(model)
+		catalog[index] = model
+	}
+	return catalog
+}
+
 // EligibleModels returns catalog entries where at least one enabled account has model eligibility.
 func (p *AccountPool) EligibleModels(models []Model) []Model {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	eligible := make([]Model, 0, len(models))
 	for _, model := range models {
-		for _, account := range p.accounts {
-			if account != nil && account.Config.Enabled && accountSupportsSelection(account, AccountSelection{ModelID: model.ID}) {
-				eligible = append(eligible, model)
-				break
-			}
+		if channels := p.modelChannelsLocked(model); len(channels) > 0 {
+			model.Channels = channels
+			eligible = append(eligible, model)
 		}
 	}
 	return eligible
@@ -678,7 +714,7 @@ func NewAccountPool(accounts []*Account, perAccountConcurrency int) *AccountPool
 	p := &AccountPool{
 		accounts: append([]*Account(nil), accounts...), byID: make(map[string]*Account, len(accounts)),
 		resources: make(map[string]string), perAccountConcurrency: perAccountConcurrency, changed: make(chan struct{}),
-		routingStrategy: "round-robin", lastPicked: make(map[string]string),
+		routingStrategy: "round-robin", lastPicked: make(map[string]string), lastPickedChannel: make(map[string]Channel),
 	}
 	for _, account := range p.accounts {
 		if account == nil {
@@ -1129,11 +1165,11 @@ func (p *AccountPool) refreshAndValidateLease(
 			return false, ErrResourceNotFound
 		}
 	}
-	if selection.ModelID != "" && !accountSupportsSelection(account, selection) {
+	if selection.ModelID != "" && !p.channelSupportsLocked(account, lease.Channel(), selection) {
 		return false, nil
 	}
 	if selection.ResourceID == "" {
-		if _, active := accountCooldown(account, selectionAccessScope(selection), time.Now()); active {
+		if _, active := accountCooldown(account, lease.CooldownScope(selectionAccessScope(selection)), time.Now()); active {
 			return false, nil
 		}
 	}
@@ -1157,7 +1193,7 @@ func (p *AccountPool) noEligibleErrorLocked(selection AccountSelection) error {
 		if account == nil || account.Config.Enabled && account.State == AccountReady {
 			continue
 		}
-		if selection.ModelID != "" && !accountSupportsSelection(account, selection) {
+		if selection.ModelID != "" && !p.accountSupportsAnyChannelLocked(account, selection) {
 			continue
 		}
 		label, ok := accountStateLabels[account.State]
@@ -1269,7 +1305,7 @@ func (l *AccountLease) CoolingDown(modelID string) bool {
 	if l == nil || l.account == nil {
 		return false
 	}
-	return l.pool.AccountCoolingDown(l.account.ID, modelID)
+	return l.pool.AccountCoolingDown(l.account.ID, l.CooldownScope(strings.TrimPrefix(strings.TrimSpace(modelID), "models/")))
 }
 
 // AccountCoolingDown returns whether the account is currently cooling down globally or for the specified model
@@ -2232,7 +2268,6 @@ func (p *AccountPool) classifyCandidatesLocked(
 	warmAccountIDs []string,
 ) (AccountCandidateGroups, error) {
 	modelID := selection.ModelID
-	modelAccessScope := selectionAccessScope(selection)
 	if modelID != "" {
 		if !p.hasModelCatalogLocked() {
 			return AccountCandidateGroups{}, ErrNoEligibleAccount
@@ -2261,13 +2296,13 @@ func (p *AccountPool) classifyCandidatesLocked(
 		if account == nil || !account.Config.Enabled || account.State != AccountReady {
 			continue
 		}
-		if modelID != "" && !accountSupportsSelection(account, selection) {
+		if modelID != "" && !p.accountSupportsAnyChannelLocked(account, selection) {
 			continue
 		}
 		groups.Eligible = true
-		if cooldown, active := accountCooldown(account, modelAccessScope, now); active {
-			if groups.EarliestCooldown.IsZero() || cooldown.Until.Before(groups.EarliestCooldown) {
-				groups.EarliestCooldown = cooldown.Until
+		if until, active := p.accountChannelCooldownLocked(account, selection, now); active {
+			if groups.EarliestCooldown.IsZero() || until.Before(groups.EarliestCooldown) {
+				groups.EarliestCooldown = until
 			}
 			continue
 		}
@@ -2295,12 +2330,12 @@ func (p *AccountPool) tryAcquireLocked(selection AccountSelection, now time.Time
 	}
 	waitable := false
 	var earliest time.Time
-	for _, index := range indices {
-		account := p.accounts[index]
+	for _, candidate := range p.channelCandidatesLocked(indices, selection) {
+		account := p.accounts[candidate.index]
 		if account == nil || !account.Config.Enabled || account.State != AccountReady {
 			continue
 		}
-		if selection.ModelID != "" && !accountSupportsSelection(account, selection) {
+		if selection.ModelID != "" && !p.channelSupportsLocked(account, candidate.channel, selection) {
 			continue
 		}
 		waitable = true
@@ -2308,7 +2343,7 @@ func (p *AccountPool) tryAcquireLocked(selection AccountSelection, now time.Time
 			continue
 		}
 		if selection.ResourceID == "" {
-			if cooldown, active := accountCooldown(account, selectionAccessScope(selection), now); active {
+			if cooldown, active := accountCooldown(account, ChannelCooldownScope(candidate.channel, selectionAccessScope(selection)), now); active {
 				if earliest.IsZero() || cooldown.Until.Before(earliest) {
 					earliest = cooldown.Until
 				}
@@ -2335,9 +2370,11 @@ func (p *AccountPool) tryAcquireLocked(selection AccountSelection, now time.Time
 		account.active++
 		account.LastUsed = now
 		p.lastPicked[selectionAccessScope(selection)] = account.ID
+		p.lastPickedChannel[selectionAccessScope(selection)] = candidate.channel
 		return &AccountLease{
 			pool: p, account: account, authGeneration: account.authGeneration,
 			modelAccessGeneration: account.modelAccessGeneration, refreshRuntime: refreshRuntime, checkedAt: now.UTC(),
+			channel: candidate.channel,
 		}, time.Time{}, true, nil
 	}
 	return nil, earliest, waitable, nil
@@ -2354,7 +2391,7 @@ func (p *AccountPool) hasModelLocked(modelID string) bool {
 			}
 		}
 	}
-	return false
+	return p.hasBuildModelLocked(modelID, "")
 }
 
 func (p *AccountPool) hasModelCatalogLocked() bool {
@@ -2377,7 +2414,7 @@ func (p *AccountPool) hasModelMethodLocked(modelID string, method string) bool {
 			}
 		}
 	}
-	return false
+	return p.hasBuildModelLocked(modelID, method)
 }
 
 func (p *AccountPool) hasModelCapabilityLocked(modelID string, capability string) bool {

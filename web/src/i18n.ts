@@ -1,6 +1,6 @@
 import { readonly, ref } from 'vue'
 import { legacyLocales } from '@/legacy-locales'
-import type { Locale } from '@/types'
+import type { Locale, UpstreamChannel } from '@/types'
 
 const zhCN = {
   'app.title': 'AI Studio 控制台',
@@ -139,6 +139,18 @@ const zhCN = {
     '轮询模式：在所有就绪账户间轮流分配请求，均衡负载并均摊各账号的速率限制，推荐多账号并发池使用。',
   'settings.routingFillFirstDesc':
     '粘性优先模式：持续使用首个健康账户，达到单账户并发上限或进入冷却后才切换到下一账户。',
+  'settings.waaBackend': 'WAA 后端',
+  'settings.waaBackendCamoufox': 'Camoufox 浏览器',
+  'settings.waaBackendGo': '纯 Go',
+  'settings.waaBackendHelp':
+    'Camoufox 在后台浏览器页面中运行 WAA；纯 Go 在服务进程内运行 WAA，不下载也不启动 Camoufox。登录账户始终需要浏览器。切换后重启生成服务生效。',
+  'settings.upstreamChannels': '上游通道',
+  'settings.upstreamChannelsHelp':
+    'Playground 与 Build 是同一账户的两份独立额度，同时启用时按账户与通道组合调度，一个通道冷却后由另一个通道继续；至少启用一个。',
+  'channel.playground': 'Playground',
+  'channel.build': 'Build',
+  'logs.channel': '通道',
+  'models.channels': '通道',
   'settings.temporaryChat': 'WAA 预热使用临时对话',
   'settings.activeValue': '当前生效',
   'settings.pendingService': '已保存值将在下次生成服务启动时生效',
@@ -347,6 +359,18 @@ const en: Record<TranslationKey, string> = {
     'Round-robin: Distributes requests evenly across all ready accounts to balance load and avoid per-account rate limits. Recommended for multi-account pools.',
   'settings.routingFillFirstDesc':
     'Fill-first (sticky): Continuously routes requests to the first healthy account until its concurrency limit is reached or it cools down before failing over.',
+  'settings.waaBackend': 'WAA backend',
+  'settings.waaBackendCamoufox': 'Camoufox browser',
+  'settings.waaBackendGo': 'Pure Go',
+  'settings.waaBackendHelp':
+    'Camoufox runs WAA in a background browser page. Pure Go runs WAA inside the service process and neither downloads nor starts Camoufox. Account login always needs a browser. Restart the generation service to apply a change.',
+  'settings.upstreamChannels': 'Upstream channels',
+  'settings.upstreamChannelsHelp':
+    'Playground and Build are two independent quotas of the same account. With both enabled, requests are scheduled per account and channel, and the other channel continues when one cools down. Enable at least one.',
+  'channel.playground': 'Playground',
+  'channel.build': 'Build',
+  'logs.channel': 'Channel',
+  'models.channels': 'Channels',
   'settings.temporaryChat': 'Use temporary chat for WAA prewarming',
   'settings.activeValue': 'Active',
   'settings.pendingService': 'Saved values apply the next time the generation service starts',
@@ -484,6 +508,11 @@ function legacyTranslation(value: Locale, key: string): string | undefined {
     current = (current as Record<string, unknown>)[part]
   }
   return typeof current === 'string' ? current : undefined
+}
+
+// channelLabelKey 返回上游通道的翻译键
+export function channelLabelKey(channel: UpstreamChannel): TranslationKey {
+  return channel === 'build' ? 'channel.build' : 'channel.playground'
 }
 
 // useI18n 提供旧控制台语言与新增字段翻译

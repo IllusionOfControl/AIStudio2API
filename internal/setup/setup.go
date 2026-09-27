@@ -143,8 +143,10 @@ func importIsolatedLogin(
 	if err := camoufoxnative.PersistAccountFingerprint(loginDirectory, account.Directory); err != nil {
 		return errors.Join(err, store.Delete(account))
 	}
-
 	fmt.Fprintf(os.Stdout, "Account saved: %s\n", account.Config.Label)
+	if result.DriveError != "" {
+		fmt.Fprintf(os.Stdout, "Drive authorization failed: %s\n", result.DriveError)
+	}
 	return nil
 }
 

@@ -12,22 +12,13 @@ import (
 // requestLogData projects request identity, parameters, and end-to-end usage metrics.
 func requestLogData(entry api.AccessLog) *api.RequestLog {
 	data := &api.RequestLog{
-		ID:              entry.RequestID,
-		Model:           entry.Model,
-		Method:          entry.Method,
-		Path:            entry.Path,
-		Status:          entry.Status,
-		DurationMS:      float64(entry.Latency) / float64(time.Millisecond),
-		ToolCalls:       entry.ToolCalls,
-		FinishReason:    entry.FinishReason,
-		Error:           entry.Error,
-		InputMessages:   entry.InputMessages,
-		InputTextChars:  entry.InputTextChars,
-		InputMedia:      entry.InputMedia,
-		InputMediaBytes: entry.InputMediaBytes,
-		InputFiles:      entry.InputFiles,
-		FirstEventMS:    float64(entry.FirstEvent) / float64(time.Millisecond),
-		UpstreamBytes:   entry.UpstreamBytes,
+		ID: entry.RequestID, Model: entry.Model, Method: entry.Method, Path: entry.Path,
+		Status: entry.Status, DurationMS: float64(entry.Latency) / float64(time.Millisecond),
+		ToolCalls: entry.ToolCalls, FinishReason: entry.FinishReason, Error: entry.Error,
+		InputMessages: entry.InputMessages, InputTextChars: entry.InputTextChars,
+		InputMedia: entry.InputMedia, InputMediaBytes: entry.InputMediaBytes, InputFiles: entry.InputFiles,
+		FirstEventMS: float64(entry.FirstEvent) / float64(time.Millisecond), UpstreamBytes: entry.UpstreamBytes,
+		Channel: entry.Channel,
 	}
 
 	if entry.Generation {

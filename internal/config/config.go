@@ -36,10 +36,21 @@ var configKeys = [...]string{
 	"WARM_STARTUP_CONCURRENCY",
 	"PER_ACCOUNT_CONCURRENCY",
 	"ROUTING_STRATEGY",
+	"UPSTREAM_CHANNELS",
 	"TEMPORARY_CHAT",
 	"HEADLESS",
 	"CAMOUFOX_PATH",
+	"WAA_BACKEND",
 }
+
+// upstreamChannels represents the upstream channels available for generation requests
+var upstreamChannels = []string{"playground", "build"}
+
+// WAABackendCamoufox indicates WAA lifecycle is handled by Camoufox page
+const WAABackendCamoufox = "camoufox"
+
+// WAABackendGo indicates WAA lifecycle is handled by pure Go VM
+const WAABackendGo = "go"
 
 // Config holds the global configuration for the service.
 type Config struct {
@@ -54,8 +65,10 @@ type Config struct {
 	WarmStartupConcurrency int           `json:"warm_startup_concurrency"`
 	PerAccountConcurrency  int           `json:"per_account_concurrency"`
 	RoutingStrategy        string        `json:"routing_strategy"`
+	UpstreamChannels       []string      `json:"upstream_channels"`
 	TemporaryChat          bool          `json:"temporary_chat"`
 	Headless               bool          `json:"headless"`
+	WAABackend             string        `json:"waa_backend"`
 }
 
 // Default returns a default configuration ready for startup.
@@ -70,7 +83,9 @@ func Default() Config {
 		WarmStartupConcurrency: defaultWarmConcurrency,
 		PerAccountConcurrency:  defaultAccountConcurrency,
 		RoutingStrategy:        "round-robin",
+		UpstreamChannels:       append([]string(nil), upstreamChannels...),
 		Headless:               defaultHeadless,
+		WAABackend:             WAABackendCamoufox,
 	}
 }
 
@@ -140,6 +155,9 @@ func Load(path string) (Config, error) {
 	if value, ok := values["ROUTING_STRATEGY"]; ok {
 		cfg.RoutingStrategy = strings.TrimSpace(value)
 	}
+	if value, ok := values["UPSTREAM_CHANNELS"]; ok {
+		cfg.UpstreamChannels = ParseUpstreamChannels(value)
+	}
 	if value, ok := values["TEMPORARY_CHAT"]; ok {
 		cfg.TemporaryChat, err = strconv.ParseBool(strings.TrimSpace(value))
 		if err != nil {
@@ -157,12 +175,16 @@ func Load(path string) (Config, error) {
 			_ = os.Setenv("CAMOUFOX_PATH", strings.TrimSpace(value))
 		}
 	}
+	if value, ok := values["WAA_BACKEND"]; ok {
+		cfg.WAABackend = strings.ToLower(strings.TrimSpace(value))
+	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
 
 	return cfg, nil
 }
+
 
 
 
@@ -207,26 +229,66 @@ func (c Config) Validate() error {
 	if c.RoutingStrategy != "round-robin" && c.RoutingStrategy != "fill-first" {
 		return fmt.Errorf("ROUTING_STRATEGY must be round-robin or fill-first")
 	}
+	if err := validateUpstreamChannels(c.UpstreamChannels); err != nil {
+		return err
+	}
+	if c.WAABackend != WAABackendCamoufox && c.WAABackend != WAABackendGo {
+		return fmt.Errorf("WAA_BACKEND must be camoufox or go")
+	}
+	return nil
+}
 
+// ParseUpstreamChannels splits a comma-separated channel list into trimmed lowercase names.
+func ParseUpstreamChannels(value string) []string {
+	var channels []string
+	for _, item := range strings.Split(value, ",") {
+		if item = strings.ToLower(strings.TrimSpace(item)); item != "" {
+			channels = append(channels, item)
+		}
+	}
+	return channels
+}
+
+// validateUpstreamChannels requires at least one known and non-duplicated upstream channel.
+func validateUpstreamChannels(channels []string) error {
+	if len(channels) == 0 {
+		return fmt.Errorf("UPSTREAM_CHANNELS must contain at least playground or build")
+	}
+	seen := make(map[string]struct{}, len(channels))
+	for _, channel := range channels {
+		known := false
+		for _, candidate := range upstreamChannels {
+			known = known || channel == candidate
+		}
+		if !known {
+			return fmt.Errorf("UPSTREAM_CHANNELS can only contain playground and build")
+		}
+		if _, exists := seen[channel]; exists {
+			return fmt.Errorf("UPSTREAM_CHANNELS channel %s is duplicated", channel)
+		}
+		seen[channel] = struct{}{}
+	}
 	return nil
 }
 
 // MarshalJSON outputs durations in string format matching env conventions.
 func (c Config) MarshalJSON() ([]byte, error) {
 	type payload struct {
-		AuthStates             string `json:"auth_states"`
-		ListenAddr             string `json:"listen_addr"`
-		ProxyAPIKey            string `json:"proxy_api_key"`
-		Proxy                  string `json:"proxy"`
-		InitTimeout            string `json:"init_timeout"`
-		RequestTimeout         string `json:"request_timeout"`
-		WarmWorkerLimit        int    `json:"warm_worker_limit"`
-		MaxActiveWorkers       int    `json:"max_active_workers"`
-		WarmStartupConcurrency int    `json:"warm_startup_concurrency"`
-		PerAccountConcurrency  int    `json:"per_account_concurrency"`
-		RoutingStrategy        string `json:"routing_strategy"`
-		TemporaryChat          bool   `json:"temporary_chat"`
-		Headless               bool   `json:"headless"`
+		AuthStates             string   `json:"auth_states"`
+		ListenAddr             string   `json:"listen_addr"`
+		ProxyAPIKey            string   `json:"proxy_api_key"`
+		Proxy                  string   `json:"proxy"`
+		InitTimeout            string   `json:"init_timeout"`
+		RequestTimeout         string   `json:"request_timeout"`
+		WarmWorkerLimit        int      `json:"warm_worker_limit"`
+		MaxActiveWorkers       int      `json:"max_active_workers"`
+		WarmStartupConcurrency int      `json:"warm_startup_concurrency"`
+		PerAccountConcurrency  int      `json:"per_account_concurrency"`
+		RoutingStrategy        string   `json:"routing_strategy"`
+		UpstreamChannels       []string `json:"upstream_channels"`
+		TemporaryChat          bool     `json:"temporary_chat"`
+		Headless               bool     `json:"headless"`
+		WAABackend             string   `json:"waa_backend"`
 	}
 
 	return json.Marshal(payload{
@@ -241,27 +303,31 @@ func (c Config) MarshalJSON() ([]byte, error) {
 		WarmStartupConcurrency: c.WarmStartupConcurrency,
 		PerAccountConcurrency:  c.PerAccountConcurrency,
 		RoutingStrategy:        c.RoutingStrategy,
+		UpstreamChannels:       c.UpstreamChannels,
 		TemporaryChat:          c.TemporaryChat,
 		Headless:               c.Headless,
+		WAABackend:             c.WAABackend,
 	})
 }
 
 // UnmarshalJSON parses configuration from textual durations used in admin endpoints.
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type payload struct {
-		AuthStates             string `json:"auth_states"`
-		ListenAddr             string `json:"listen_addr"`
-		ProxyAPIKey            string `json:"proxy_api_key"`
-		Proxy                  string `json:"proxy"`
-		InitTimeout            string `json:"init_timeout"`
-		RequestTimeout         string `json:"request_timeout"`
-		WarmWorkerLimit        int    `json:"warm_worker_limit"`
-		MaxActiveWorkers       int    `json:"max_active_workers"`
-		WarmStartupConcurrency int    `json:"warm_startup_concurrency"`
-		PerAccountConcurrency  int    `json:"per_account_concurrency"`
-		RoutingStrategy        string `json:"routing_strategy"`
-		TemporaryChat          bool   `json:"temporary_chat"`
-		Headless               bool   `json:"headless"`
+		AuthStates             string   `json:"auth_states"`
+		ListenAddr             string   `json:"listen_addr"`
+		ProxyAPIKey            string   `json:"proxy_api_key"`
+		Proxy                  string   `json:"proxy"`
+		InitTimeout            string   `json:"init_timeout"`
+		RequestTimeout         string   `json:"request_timeout"`
+		WarmWorkerLimit        int      `json:"warm_worker_limit"`
+		MaxActiveWorkers       int      `json:"max_active_workers"`
+		WarmStartupConcurrency int      `json:"warm_startup_concurrency"`
+		PerAccountConcurrency  int      `json:"per_account_concurrency"`
+		RoutingStrategy        string   `json:"routing_strategy"`
+		UpstreamChannels       []string `json:"upstream_channels"`
+		TemporaryChat          bool     `json:"temporary_chat"`
+		Headless               bool     `json:"headless"`
+		WAABackend             string   `json:"waa_backend"`
 	}
 
 	var value payload
@@ -291,8 +357,10 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		WarmStartupConcurrency: value.WarmStartupConcurrency,
 		PerAccountConcurrency:  value.PerAccountConcurrency,
 		RoutingStrategy:        value.RoutingStrategy,
+		UpstreamChannels:       value.UpstreamChannels,
 		TemporaryChat:          value.TemporaryChat,
 		Headless:               value.Headless,
+		WAABackend:             strings.ToLower(strings.TrimSpace(value.WAABackend)),
 	}
 
 	if err := parsed.Validate(); err != nil {
