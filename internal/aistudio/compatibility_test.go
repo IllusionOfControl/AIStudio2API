@@ -136,3 +136,94 @@ func TestRPCErrorCompatibility(t *testing.T) {
 		}
 	})
 }
+
+// TestEncodeContentsEmptyPartsFilter verifies that empty parts in multi-turn history are automatically skipped without encoding validation failure
+func TestEncodeContentsEmptyPartsFilter(t *testing.T) {
+	contents := []Content{
+		{Role: RoleUser, Parts: []Part{{Text: "hello"}}},
+		{Role: RoleAssistant, Parts: nil},
+		{Role: RoleAssistant, Parts: []Part{}},
+		{Role: RoleUser, Parts: []Part{{Text: "world"}}},
+	}
+	wire, err := encodeContents(contents)
+	if err != nil {
+		t.Fatalf("encodeContents failed: %v", err)
+	}
+	if len(wire) != 2 {
+		t.Fatalf("expected 2 valid wire contents, got %d: %#v", len(wire), wire)
+	}
+}
+
+// TestAttachYouTubeMediaPreservesText verifies that normal text and non-whitespace characters are not truncated when attaching YouTube media
+func TestAttachYouTubeMediaPreservesText(t *testing.T) {
+	content := Content{
+		Role: RoleUser,
+		Parts: []Part{
+			{Text: "  normal text with space  "},
+			{Text: "https://www.youtube.com/watch?v=dQw4w9WgXcQ"},
+		},
+	}
+	attached := attachYouTubeMedia(content)
+	if len(attached.Parts) != 2 {
+		t.Fatalf("expected 2 parts (1 text + 1 external media), got %d: %#v", len(attached.Parts), attached.Parts)
+	}
+	if attached.Parts[0].Text != "  normal text with space  " {
+		t.Fatalf("unexpected text: %q", attached.Parts[0].Text)
+	}
+	if attached.Parts[1].ExternalMedia == nil {
+		t.Fatalf("expected external media part")
+	}
+	for _, text := range []string{"  https://example.com/article  ", "  https://youtube.com/playlist?list=abc  "} {
+		got := attachYouTubeMedia(Content{Role: RoleUser, Parts: []Part{{Text: text}}})
+		if len(got.Parts) != 1 || got.Parts[0].Text != text {
+			t.Errorf("ordinary text changed: %#v", got)
+		}
+	}
+}
+
+// TestFunctionResultNameInference verifies unique correlation and preservation of original input for tool results
+func TestFunctionResultNameInference(t *testing.T) {
+	call := func(id, name string) Part {
+		return Part{FunctionCall: &FunctionCall{ID: id, Name: name, Arguments: json.RawMessage(`{}`)}}
+	}
+	result := func(id string) Part {
+		return Part{FunctionResult: &FunctionResult{ID: id, Content: json.RawMessage(`{"ok":true}`)}}
+	}
+	for _, test := range []struct {
+		name     string
+		contents []Content
+		want     string
+	}{
+		{"matching id", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup"), call("two", "weather")}}, {Role: RoleTool, Parts: []Part{result("one")}}}, "lookup"},
+		{"unique mismatched id", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup")}}, {Role: RoleTool, Parts: []Part{result("opaque-id")}}}, "lookup"},
+		{"missing id", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup")}}, {Role: RoleTool, Parts: []Part{result("")}}}, "lookup"},
+		{"remaining call", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup"), call("two", "weather")}}, {Role: RoleTool, Parts: []Part{result("one")}}, {Role: RoleTool, Parts: []Part{result("opaque-id")}}}, "weather"},
+		{"split calls", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup")}}, {Role: RoleAssistant, Parts: []Part{call("two", "weather")}}, {Role: RoleTool, Parts: []Part{result("two")}}, {Role: RoleTool, Parts: []Part{result("one")}}}, "lookup"},
+		{"consumed call", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup")}}, {Role: RoleTool, Parts: []Part{result("one")}}, {Role: RoleTool, Parts: []Part{result("call_other")}}}, ""},
+		{"user result", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup")}}, {Role: RoleUser, Parts: []Part{result("one")}}}, "lookup"},
+		{"ambiguous id", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup"), call("two", "weather")}}, {Role: RoleTool, Parts: []Part{result("call_other")}}}, ""},
+		{"orphan id", []Content{{Role: RoleTool, Parts: []Part{result("opaque-id")}}}, ""},
+		{"closed turn", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup")}}, {Role: RoleTool, Parts: []Part{result("one")}}, {Role: RoleAssistant, Parts: []Part{{Text: "done"}}}, {Role: RoleTool, Parts: []Part{result("call_other")}}}, ""},
+		{"new turn", []Content{{Role: RoleAssistant, Parts: []Part{call("one", "lookup")}}, {Role: RoleUser, Parts: []Part{{Text: "new question"}}}, {Role: RoleTool, Parts: []Part{result("call_other")}}}, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			wire, err := encodeContents(test.contents)
+			if test.want == "" {
+				if err == nil {
+					t.Fatalf("unresolved result accepted: %#v", wire)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			last := wire[len(wire)-1].([]any)[0].([]any)[0].([]any)[11].([]any)
+			if last[0] != test.want {
+				t.Fatalf("name=%v want=%s", last[0], test.want)
+			}
+			if test.contents[len(test.contents)-1].Parts[0].FunctionResult.Name != "" {
+				t.Fatal("input mutated")
+			}
+		})
+	}
+}

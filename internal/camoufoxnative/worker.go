@@ -130,7 +130,7 @@ func (worker *Worker) Proof(ctx context.Context, digest string, prompt string) (
 		if err != nil {
 			return "", fmt.Errorf("synchronizing official page prompt: %w", err)
 		}
-		if value == prompt {
+		if normalizePromptNewlines(value) == normalizePromptNewlines(prompt) {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -249,7 +249,7 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 	}
 	options.reportStartup(StartupBootstrappingWAA)
 	filled, err := client.evaluateString(ctx, contextID, fillPromptExpression(options.BootstrapPrompt))
-	if err != nil || filled != options.BootstrapPrompt {
+	if err != nil || normalizePromptNewlines(filled) != normalizePromptNewlines(options.BootstrapPrompt) {
 		return fmt.Errorf("failed to fill bootstrap prompt value=%q err=%v", filled, err)
 	}
 	if _, err := client.command(ctx, "session.subscribe", map[string]any{
@@ -274,6 +274,9 @@ func (worker *Worker) bootstrap(ctx context.Context, options Options, storage st
 	interceptID, _ := intercept["intercept"].(string)
 	if interceptID == "" {
 		return errors.New("invalid GenerateContent intercept ID")
+	}
+	if err := client.waitFor(ctx, contextID, runButtonEnabledExpression, 15*time.Second); err != nil {
+		return fmt.Errorf("waiting for AI Studio run button to be enabled: %w", err)
 	}
 	if _, err := client.evaluate(ctx, contextID, submitPromptExpression); err != nil {
 		return fmt.Errorf("submitting prompt on official page: %w", err)

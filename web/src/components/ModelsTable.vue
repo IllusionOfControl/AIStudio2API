@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useI18n } from '@/i18n'
 import type { Model } from '@/types'
+import UiSelect from './UiSelect.vue'
 
 const props = defineProps<{
   models: Model[]
@@ -34,21 +35,21 @@ const filteredModels = computed(() => {
   })
 })
 
-// capabilityNames 返回模型明确启用的能力名称
+// capabilityNames returns explicitly enabled capability names for the model
 function capabilityNames(model: Model): string[] {
   return Object.entries(model.capabilities ?? {})
     .filter(([, enabled]) => enabled)
     .map(([name]) => name)
 }
 
-// capabilityOptionEntries 展开模型目录返回的真实能力选项
+// capabilityOptionEntries expands actual capability options returned by the model catalog
 function capabilityOptionEntries(model: Model): [string, string[]][] {
   return Object.entries(model.capability_options ?? {}).sort(([left], [right]) =>
     left.localeCompare(right),
   )
 }
 
-// tokenLimit 使用当前界面语言格式化模型限制
+// tokenLimit formats model limits using current interface locale
 function tokenLimit(value: number | undefined): string {
   if (value === undefined || value === 0) return '—'
   return new Intl.NumberFormat(locale.value).format(value)
@@ -68,14 +69,14 @@ function tokenLimit(value: number | undefined): string {
         :placeholder="t('models.search')"
         type="search"
       />
-      <select
+      <UiSelect
         v-model="selectedMethod"
         class="rounded border border-[#30363d] bg-[#0d1117] px-3 py-2 text-sm text-gray-300 focus:border-blue-500 focus:outline-none"
         :aria-label="t('models.methods')"
       >
         <option value="">{{ t('models.allMethods') }}</option>
         <option v-for="method in methods" :key="method" :value="method">{{ method }}</option>
-      </select>
+      </UiSelect>
       <span class="font-mono text-xs text-gray-500">{{ filteredModels.length }}</span>
     </div>
 

@@ -59,10 +59,32 @@ var (
 	ErrAccountNotFound = errors.New("account not found")
 	// ErrAccountLeased indicates that the account currently has an in-process or cross-process lease
 	ErrAccountLeased = errors.New("account is busy")
+	// ErrAccountCoolingDown indicates that the leased account entered cooldown before the request was sent
+	ErrAccountCoolingDown = errors.New("account entered cooldown")
 	// ErrResourceNotFound indicates that no account mapping was created for the resource
 	ErrResourceNotFound = errors.New("resource account mapping not found")
 	errAccountLeaseBusy = ErrAccountLeased
 )
+
+// AccountsNotReadyError indicates that all eligible accounts are currently unschedulable
+type AccountsNotReadyError struct {
+	Reasons []string
+}
+
+func (e *AccountsNotReadyError) Error() string {
+	return ErrNoEligibleAccount.Error() + ": " + strings.Join(e.Reasons, "; ")
+}
+
+func (e *AccountsNotReadyError) Unwrap() error {
+	return ErrNoEligibleAccount
+}
+
+// accountStateLabels provides descriptions for unschedulable account states
+var accountStateLabels = map[AccountState]string{
+	AccountAuthRequired: "authentication required",
+	AccountUnavailable:  "unavailable",
+	AccountDisabled:     "disabled",
+}
 
 // AccountConfig represents the fixed minimal configuration in an account directory
 type AccountConfig struct {
@@ -130,6 +152,7 @@ type Account struct {
 	runtime               accountRuntimeState
 	active                int
 	exclusive             bool
+	exclusiveWaiters      int
 	authRefreshers        int
 	leaseLock             *flock.Flock
 	leasePath             string
@@ -594,6 +617,50 @@ func accountSupportsSelection(account *Account, selection AccountSelection) bool
 	return false
 }
 
+// EligibleModels returns catalog entries where at least one enabled account has model eligibility.
+func (p *AccountPool) EligibleModels(models []Model) []Model {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	eligible := make([]Model, 0, len(models))
+	for _, model := range models {
+		for _, account := range p.accounts {
+			if account != nil && account.Config.Enabled && accountSupportsSelection(account, AccountSelection{ModelID: model.ID}) {
+				eligible = append(eligible, model)
+				break
+			}
+		}
+	}
+	return eligible
+}
+
+// CanonicalModelID converts model aliases from the live catalog to canonical model IDs accepted upstream.
+func (p *AccountPool) CanonicalModelID(modelID string) string {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(modelID), "models/")
+	if p == nil || trimmed == "" {
+		return modelID
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	canonical := ""
+	for _, account := range p.accounts {
+		if account == nil {
+			continue
+		}
+		for _, model := range account.Models {
+			if model.ID == trimmed {
+				return modelID
+			}
+			if canonical == "" && modelMatchesID(model, trimmed) {
+				canonical = model.ID
+			}
+		}
+	}
+	if canonical == "" {
+		return modelID
+	}
+	return canonical
+}
+
 func modelMatchesID(model Model, modelID string) bool {
 	if model.ID == modelID {
 		return true
@@ -732,7 +799,7 @@ func (p *AccountPool) Remove(accountID string, deleteDirectory func(*Account) er
 		p.mu.Unlock()
 		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, accountID)
 	}
-	if account.exclusive || account.active > 0 {
+	if account.exclusive || account.exclusiveWaiters > 0 || account.active > 0 {
 		p.mu.Unlock()
 		return nil, fmt.Errorf("%w: %s", ErrAccountLeased, accountID)
 	}
@@ -818,7 +885,25 @@ func (p *AccountPool) AcquireAccount(ctx context.Context, accountID string) (*Ac
 		return nil, ErrAccountNotFound
 	}
 	accountID = strings.TrimSpace(accountID)
+	p.mu.Lock()
+	waitingAccount := p.byID[accountID]
+	if waitingAccount == nil {
+		p.mu.Unlock()
+		return nil, fmt.Errorf("%w: %s", ErrAccountNotFound, accountID)
+	}
+	waitingAccount.exclusiveWaiters++
+	p.notifyLocked()
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		waitingAccount.exclusiveWaiters--
+		p.notifyLocked()
+		p.mu.Unlock()
+	}()
 	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		p.mu.Lock()
 		account := p.byID[accountID]
 		if account == nil {
@@ -928,8 +1013,9 @@ func (p *AccountPool) AcquireFor(ctx context.Context, selection AccountSelection
 			continue
 		}
 		if !waitable {
+			err := p.noEligibleErrorLocked(selection)
 			p.mu.Unlock()
-			return nil, ErrNoEligibleAccount
+			return nil, err
 		}
 		changed := p.changed
 		p.mu.Unlock()
@@ -1054,6 +1140,45 @@ func (p *AccountPool) refreshAndValidateLease(
 	return true, nil
 }
 
+// NoEligibleError returns an error listing reasons why candidate accounts are unschedulable
+func (p *AccountPool) NoEligibleError(selection AccountSelection) error {
+	if p == nil {
+		return ErrNoEligibleAccount
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.noEligibleErrorLocked(selection)
+}
+
+func (p *AccountPool) noEligibleErrorLocked(selection AccountSelection) error {
+	selection.ModelID = strings.TrimPrefix(strings.TrimSpace(selection.ModelID), "models/")
+	var reasons []string
+	for _, account := range p.accounts {
+		if account == nil || account.Config.Enabled && account.State == AccountReady {
+			continue
+		}
+		if selection.ModelID != "" && !accountSupportsSelection(account, selection) {
+			continue
+		}
+		label, ok := accountStateLabels[account.State]
+		if !ok {
+			label = string(account.State)
+		}
+		if !account.Config.Enabled {
+			label = accountStateLabels[AccountDisabled]
+		}
+		reason := account.ID + " " + label
+		if message := strings.TrimSpace(account.stateMessage); message != "" {
+			reason += " (" + message + ")"
+		}
+		reasons = append(reasons, reason)
+	}
+	if len(reasons) == 0 {
+		return ErrNoEligibleAccount
+	}
+	return &AccountsNotReadyError{Reasons: reasons}
+}
+
 func (p *AccountPool) markStaleAccountUnavailable(account *Account) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -1137,6 +1262,29 @@ func (l *AccountLease) markAuthenticationValidAt(checkedAt time.Time) error {
 // markAuthenticationRequiredAt records the authentication failure state for a specific round in a persistent connection
 func (l *AccountLease) markAuthenticationRequiredAt(reason string, checkedAt time.Time) error {
 	return l.markAuthenticationStateAt(true, reason, checkedAt)
+}
+
+// CoolingDown returns whether the leased account is currently cooling down globally or for the specified model
+func (l *AccountLease) CoolingDown(modelID string) bool {
+	if l == nil || l.account == nil {
+		return false
+	}
+	return l.pool.AccountCoolingDown(l.account.ID, modelID)
+}
+
+// AccountCoolingDown returns whether the account is currently cooling down globally or for the specified model
+func (p *AccountPool) AccountCoolingDown(accountID string, modelID string) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	account := p.byID[strings.TrimSpace(accountID)]
+	if account == nil {
+		return false
+	}
+	_, active := accountCooldown(account, strings.TrimPrefix(strings.TrimSpace(modelID), "models/"), time.Now())
+	return active
 }
 
 // markAuthenticationStateAt writes back the account authentication state for the specified sequential time
@@ -2013,7 +2161,7 @@ func (p *AccountPool) Status() []AccountStatus {
 		_, active := accountCooldown(account, "", now)
 		if !account.Config.Enabled {
 			state = AccountDisabled
-		} else if account.exclusive || account.authRefreshers > 0 || account.active > 0 {
+		} else if account.exclusive || account.exclusiveWaiters > 0 || account.authRefreshers > 0 || account.active > 0 {
 			state = AccountBusy
 		} else if state == AccountReady && active {
 			state = AccountCooldown
@@ -2125,13 +2273,13 @@ func (p *AccountPool) classifyCandidatesLocked(
 		}
 		_, isWarm := warm[account.ID]
 		switch {
-		case isWarm && !account.exclusive && account.authRefreshers == 0 && account.active == 0:
+		case isWarm && !account.exclusive && account.exclusiveWaiters == 0 && account.authRefreshers == 0 && account.active == 0:
 			groups.WarmReady = append(groups.WarmReady, account.ID)
-		case isWarm && !account.exclusive && account.authRefreshers == 0 && account.active < p.perAccountConcurrency:
+		case isWarm && !account.exclusive && account.exclusiveWaiters == 0 && account.authRefreshers == 0 && account.active < p.perAccountConcurrency:
 			groups.WarmAvailable = append(groups.WarmAvailable, account.ID)
 		case isWarm:
 			groups.WarmBusy = append(groups.WarmBusy, account.ID)
-		case account.exclusive || account.authRefreshers > 0 || account.active > 0:
+		case account.exclusive || account.exclusiveWaiters > 0 || account.authRefreshers > 0 || account.active > 0:
 			groups.StandbyBusy = append(groups.StandbyBusy, account.ID)
 		default:
 			groups.StandbyReady = append(groups.StandbyReady, account.ID)
@@ -2156,7 +2304,7 @@ func (p *AccountPool) tryAcquireLocked(selection AccountSelection, now time.Time
 			continue
 		}
 		waitable = true
-		if account.exclusive || account.authRefreshers > 0 || account.active >= p.perAccountConcurrency {
+		if account.exclusive || account.exclusiveWaiters > 0 || account.authRefreshers > 0 || account.active >= p.perAccountConcurrency {
 			continue
 		}
 		if selection.ResourceID == "" {
@@ -2398,6 +2546,44 @@ func (p *AccountPool) setAccountState(accountID string, state AccountState, reas
 	account.stateMessage = strings.TrimSpace(reason)
 	p.notifyLocked()
 	return nil
+}
+
+// EnabledAccounts returns enabled account IDs and the count of accounts that are ready or busy.
+func (p *AccountPool) EnabledAccounts() ([]string, int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	now := time.Now()
+	ids := make([]string, 0, len(p.accounts))
+	schedulable := 0
+	for _, account := range p.accounts {
+		if account == nil || !account.Config.Enabled {
+			continue
+		}
+		ids = append(ids, account.ID)
+		_, cooling := accountCooldown(account, "", now)
+		if account.exclusive || account.exclusiveWaiters > 0 || account.authRefreshers > 0 || account.active > 0 || account.State == AccountReady && !cooling {
+			schedulable++
+		}
+	}
+	return ids, schedulable
+}
+
+// Activity returns whether the account has an active lease or exclusive operation, along with its last used time.
+func (p *AccountPool) Activity(accountID string) (bool, time.Time) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	account := p.byID[accountID]
+	if account == nil {
+		return false, time.Time{}
+	}
+	return account.exclusive || account.exclusiveWaiters > 0 || account.authRefreshers > 0 || account.active > 0, account.LastUsed
+}
+
+// Changed returns a channel closed upon the next pool lease or status change.
+func (p *AccountPool) Changed() <-chan struct{} {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.changed
 }
 
 func (p *AccountPool) notifyLocked() {

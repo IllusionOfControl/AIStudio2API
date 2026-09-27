@@ -407,10 +407,56 @@ func corsMiddleware(next http.Handler) http.Handler {
 func loopbackMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil || !net.ParseIP(host).IsLoopback() {
+		if err != nil || !net.ParseIP(host).IsLoopback() || !loopbackHost(r.Host) {
 			writeAdminError(w, http.StatusForbidden, "control_plane_forbidden", "Control plane is only available from loopback")
 			return
 		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// loopbackHost determines whether the Host or Origin hostname is localhost or a loopback address.
+func loopbackHost(host string) bool {
+	name := host
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		name = hostname
+	}
+	name = strings.Trim(name, "[]")
+	if strings.EqualFold(name, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(name)
+	return ip != nil && ip.IsLoopback()
+}
+
+// browserOriginMiddleware rejects browser requests from external origins and null origins when no API key is configured.
+func browserOriginMiddleware(requiredKey string, next http.Handler) http.Handler {
+	if strings.TrimSpace(requiredKey) != "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		originValue := strings.TrimSpace(r.Header.Get("Origin"))
+		if originValue == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		origin, err := url.Parse(originValue)
+		webOrigin := err != nil || originValue == "null" || origin.Scheme == "http" || origin.Scheme == "https"
+		if webOrigin && (err != nil || !loopbackHost(origin.Host)) {
+			writeAuthError(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// maxPublicBodyBytes is the maximum request body size for public endpoints, accommodating the largest Base64-encoded file.
+const maxPublicBodyBytes = openAIFileMaxBytes/3*4 + openAIFileRequestOverhead
+
+// bodyLimitMiddleware limits request body size for public endpoints.
+func bodyLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxPublicBodyBytes)
 		next.ServeHTTP(w, r)
 	})
 }

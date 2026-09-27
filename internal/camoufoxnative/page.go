@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // pageDOMHelpers defines shared visibility and button state checks for official web pages.
@@ -25,6 +26,11 @@ const promptReadyExpression = `(() => {` + pageDOMHelpers + `
 // workerPageReadyExpression waits for the prompt textarea to appear or page redirects to login.
 const workerPageReadyExpression = `(location.hostname === 'accounts.google.com' || ` + promptReadyExpression + `)`
 
+// normalizePromptNewlines normalizes CRLF and CR to LF since the official textarea normalizes values to LF.
+func normalizePromptNewlines(value string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(value, "\r\n", "\n"), "\r", "\n")
+}
+
 // fillPromptExpression writes text to the currently visible prompt box and dispatches input events.
 func fillPromptExpression(prompt string) string {
 	encoded, _ := json.Marshal(prompt)
@@ -38,6 +44,12 @@ func fillPromptExpression(prompt string) string {
   return textarea.value;
 })()`, encoded, encoded)
 }
+
+// runButtonEnabledExpression checks whether the AI Studio Run button is visible and enabled
+const runButtonEnabledExpression = `(() => {` + pageDOMHelpers + `
+  const button = uniqueVisible('ms-run-button button', 'Run button');
+  return Boolean(button && buttonEnabled(button));
+})()`
 
 // submitPromptExpression clicks the currently visible and enabled run button.
 const submitPromptExpression = `(() => {` + pageDOMHelpers + `

@@ -21,6 +21,7 @@ const emit = defineEmits<{
 
 const { locale, t } = useI18n()
 const cancelling = ref('')
+const refreshing = ref(false)
 
 const requestStateKeys: Record<RequestState, TranslationKey> = {
   queued: 'state.queued',
@@ -36,12 +37,12 @@ const activeCount = computed(
       .length,
 )
 
-// accountLabel 将稳定账户 ID 映射为用户显示名称
+// accountLabel maps stable account ID to display label
 function accountLabel(id: string, label: string): string {
   return label || props.accounts.find((account) => account.id === id)?.label || '—'
 }
 
-// formatTime 根据当前语言显示请求时间
+// formatTime displays request timestamp according to the current locale
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat(locale.value, {
     month: '2-digit',
@@ -52,7 +53,14 @@ function formatTime(value: string): string {
   }).format(new Date(value))
 }
 
-// cancelRequest 停止活动请求并刷新摘要
+// refresh requests fresh data with a brief spinning icon feedback
+function refresh(): void {
+  refreshing.value = true
+  emit('refresh')
+  window.setTimeout(() => (refreshing.value = false), 600)
+}
+
+// cancelRequest terminates an active request and refreshes summary
 async function cancelRequest(request: RequestSummary): Promise<void> {
   cancelling.value = request.id
   try {
@@ -73,9 +81,9 @@ async function cancelRequest(request: RequestSummary): Promise<void> {
       <button
         class="flex items-center gap-1 rounded bg-blue-600 px-3 py-1.5 text-xs text-white transition hover:bg-blue-500"
         type="button"
-        @click="emit('refresh')"
+        @click="refresh"
       >
-        <UiIcon name="refresh" :size="13" />
+        <UiIcon name="refresh" :size="13" :class="{ 'animate-spin': refreshing }" />
         {{ t('app.refresh') }}
       </button>
     </div>
@@ -167,6 +175,7 @@ async function cancelRequest(request: RequestSummary): Promise<void> {
               class="rounded border border-red-900/50 bg-red-900/30 px-3 py-1 text-xs text-red-400 transition hover:bg-red-900/50 disabled:opacity-50"
               type="button"
               :disabled="cancelling !== ''"
+              :aria-busy="cancelling === request.id"
               @click="cancelRequest(request)"
             >
               {{ t('requests.stop') }}

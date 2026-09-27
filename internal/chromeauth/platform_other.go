@@ -16,6 +16,6 @@ func discoverPlatform(string) ([]Account, error) {
 	return nil, fmt.Errorf("Chrome OAuth import is only supported on Windows")
 }
 
-func readTokenService(string, string) (string, []byte, []byte, error) {
+func readTokenService(string, string, string) (string, []byte, []byte, error) {
 	return "", nil, nil, fmt.Errorf("Chrome OAuth import is only supported on Windows")
 }

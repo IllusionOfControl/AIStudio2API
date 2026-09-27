@@ -53,7 +53,7 @@ export class ApiError extends Error {
   }
 }
 
-// responseErrorMessage 提取四套公开协议共享的错误消息
+// responseErrorMessage extracts error message shared across public protocols
 async function responseErrorMessage(response: Response): Promise<string> {
   const body = await response.text()
   if (body === '') return response.statusText
@@ -64,7 +64,7 @@ async function responseErrorMessage(response: Response): Promise<string> {
   return typeof message === 'string' ? message : body
 }
 
-// requestJSON 执行管理端 JSON 请求并保留服务端错误语义
+// requestJSON executes an admin JSON request preserving server error semantics
 async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers)
   if (init?.body !== undefined) {
@@ -79,7 +79,7 @@ async function requestJSON<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-// requestCommand 执行无需响应体的管理写操作
+// requestCommand executes an admin write operation without response body
 async function requestCommand(path: string, init: RequestInit): Promise<void> {
   const headers = new Headers(init.headers)
   if (init.body !== undefined) {
@@ -92,7 +92,7 @@ async function requestCommand(path: string, init: RequestInit): Promise<void> {
   }
 }
 
-// parseAdminEvent 校验单一事件流的事件外壳
+// parseAdminEvent validates the envelope of an event from the event stream
 function parseAdminEvent(raw: string): AdminEvent | undefined {
   const value: unknown = JSON.parse(raw)
   if (typeof value !== 'object' || value === null || !('type' in value) || !('data' in value)) {
@@ -154,7 +154,7 @@ export const api = {
     }),
 }
 
-// openAdminEvents 建立唯一的管理状态 SSE 连接
+// openAdminEvents establishes a single SSE connection for admin state
 export function openAdminEvents(
   onEvent: (event: AdminEvent) => void,
   onOpen: () => void,
@@ -221,7 +221,7 @@ function toolPayload(input: PlaygroundInput): unknown[] | undefined {
   return [{ type: input.tool }]
 }
 
-// buildPlaygroundRequest 将输出类型和协议映射为公开 API 请求
+// buildPlaygroundRequest maps output type and protocol to a public API request
 function buildPlaygroundRequest(input: PlaygroundInput): PlaygroundRequest {
   const headers = new Headers({ 'Content-Type': 'application/json' })
   if (input.apiKey !== '') {
@@ -357,12 +357,12 @@ function buildPlaygroundRequest(input: PlaygroundInput): PlaygroundRequest {
   }
 }
 
-// isRecord 收窄公开协议响应中的动态对象
+// isRecord narrows dynamic objects in public protocol responses
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-// pathValue 读取公开协议中已知的嵌套字段
+// pathValue reads known nested fields in public protocols
 function pathValue(value: unknown, path: readonly (string | number)[]): unknown {
   let current = value
   for (const part of path) {
@@ -586,7 +586,7 @@ function imageChunk(value: unknown): PlaygroundChunk {
   return chunk
 }
 
-// responseChunk 提取公开协议的正文、思考、工具与媒体结果
+// responseChunk extracts text, thought, tool, and media results from public protocols
 function responseChunk(input: PlaygroundInput, value: unknown): PlaygroundChunk {
   if (input.mode === 'image') return imageChunk(value)
   if (input.mode === 'music' || input.protocol === 'gemini') return geminiChunk(value)
@@ -595,7 +595,7 @@ function responseChunk(input: PlaygroundInput, value: unknown): PlaygroundChunk 
   return anthropicChunk(value)
 }
 
-// readEventStream 逐帧读取公开协议流式响应
+// readEventStream reads streaming response frames from public protocols
 async function readEventStream(
   response: Response,
   input: PlaygroundInput,
@@ -620,7 +620,7 @@ async function readEventStream(
   throw new Error('Event stream ended before the protocol completion event')
 }
 
-// streamFinished 按各公开协议的结束事件确认请求完成
+// streamFinished determines completion based on protocol completion events
 function streamFinished(input: PlaygroundInput, value: unknown): boolean {
   const type = pathValue(value, ['type'])
   switch (input.protocol) {
@@ -637,7 +637,7 @@ function streamFinished(input: PlaygroundInput, value: unknown): boolean {
   }
 }
 
-// runPlayground 执行一次公开协议试用并返回取消控制器
+// runPlayground executes a test request against public protocols
 export async function runPlayground(
   input: PlaygroundInput,
   signal: AbortSignal,

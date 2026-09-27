@@ -16,16 +16,17 @@ type Config struct {
 }
 
 type server struct {
-	service        aistudio.Service
-	config         Config
-	responseStates *responseStateStore
+	service           aistudio.Service
+	config            Config
+	responseStates    *responseStateStore
+	thoughtSignatures *thoughtSignatureStore
 }
 
 var idSequence atomic.Uint64
 
 // NewHandler creates public API HTTP routing.
 func NewHandler(service aistudio.Service, config Config) http.Handler {
-	s := &server{service: service, config: config, responseStates: newResponseStateStore()}
+	s := &server{service: service, config: config, responseStates: newResponseStateStore(), thoughtSignatures: newThoughtSignatureStore()}
 	public := http.NewServeMux()
 	public.HandleFunc("GET /v1/models", s.handleOpenAIModels)
 	public.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
@@ -58,8 +59,9 @@ func NewHandler(service aistudio.Service, config Config) http.Handler {
 
 	root := http.NewServeMux()
 	root.Handle("GET /health", corsMiddleware(http.HandlerFunc(s.handleHealth)))
-	root.Handle("/v1/", requestLoggingMiddleware(config.Admin, corsMiddleware(authMiddleware(config.APIKey, public))))
-	root.Handle("/v1beta/", requestLoggingMiddleware(config.Admin, corsMiddleware(authMiddleware(config.APIKey, public))))
+	publicHandler := bodyLimitMiddleware(browserOriginMiddleware(config.APIKey, authMiddleware(config.APIKey, public)))
+	root.Handle("/v1/", requestLoggingMiddleware(config.Admin, corsMiddleware(publicHandler)))
+	root.Handle("/v1beta/", requestLoggingMiddleware(config.Admin, corsMiddleware(publicHandler)))
 	root.Handle("/api/", loopbackMiddleware(sameOriginMiddleware(control)))
 	return root
 }

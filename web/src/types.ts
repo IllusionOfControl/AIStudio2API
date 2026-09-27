@@ -33,6 +33,7 @@ export interface AccountLoginInput {
 }
 
 export interface ChromeImportProfile {
+  id: string
   profile: string
   display_name: string
   email: string
@@ -40,7 +41,7 @@ export interface ChromeImportProfile {
 }
 
 export interface ChromeImportInput extends AccountLoginInput {
-  profiles: string[]
+  account_ids: string[]
 }
 
 export interface AccountCounters {
@@ -69,7 +70,7 @@ export interface AdminLog {
   request?: RequestLog
 }
 
-// RequestLog 对应请求日志的结构化载荷
+// RequestLog represents the structured payload of a request log
 export interface RequestLog {
   id: string
   state: 'running' | 'completed' | 'tool_calls' | 'limited' | 'blocked' | 'failed' | 'cancelled'

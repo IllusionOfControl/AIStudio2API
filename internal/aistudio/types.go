@@ -224,6 +224,8 @@ type GenerateRequest struct {
 	Config    GenerationConfig `json:"config,omitempty"`
 	Tools     Tools            `json:"tools,omitempty"`
 	AccountID string           `json:"account_id,omitempty"`
+	// ImageRoute internal flag: image generation model (derived from model catalog capabilities)
+	ImageRoute bool `json:"-"`
 }
 
 // TokenCountRequest represents a token counting request
