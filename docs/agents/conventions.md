@@ -23,6 +23,11 @@ This guide outlines coding standards, language policies, configuration rules, an
 | 预热 | warm-up / pre-warming |
 | 凭据续签 | credential renewal / refresh |
 | 租约 | lease |
+| 上游通道 | upstream channel |
+| 纯 Go WAA | pure-Go WAA |
+| 双通道 | dual channel |
+| 占用 / 租约占用 | occupied / occupation |
+| 解释器 | interpreter |
 
 ---
 

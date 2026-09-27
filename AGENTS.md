@@ -21,14 +21,19 @@ flowchart TD
     Client["Client Request (OpenAI / Anthropic / Gemini / Responses)"] --> API["internal/api<br/>(Protocol Decoders & Adapters)"]
     API --> App["internal/app<br/>(Service Lifecycle, Account Leasing, Schedulers)"]
     App --> AIStudio["internal/aistudio<br/>(Canonical Requests & MakerSuite Wire Arrays)"]
-    AIStudio --> Camoufox["internal/camoufoxnative<br/>(WebDriver BiDi & WAA Proof Solver)"]
-    Camoufox --> Upstream["Google AI Studio MakerSuite<br/>(XHR / Fetch / WebChannel)"]
+    AIStudio --> Camoufox["internal/camoufoxnative<br/>(WebDriver BiDi Browser Solver)"]
+    AIStudio --> GoWAA["internal/waa & goja<br/>(Pure-Go In-Process BotGuard VM)"]
+    Camoufox --> Upstream["Google AI Studio MakerSuite<br/>(Playground & Build Proxy Channels)"]
+    GoWAA --> Upstream
     App --> ChromeAuth["internal/chromeauth<br/>(Windows Chrome DBSC / OAuth Import)"]
     App --> WebUI["internal/webui<br/>(Embedded Vue 3 Admin Dashboard)"]
 ```
 
 - **Frontend (`web/`)**: Vue 3 + TypeScript + Vite + Tailwind CSS admin UI embedded into the Go binary via `internal/webui/embed.go`.
-- **WAA Proof Generation (`internal/camoufoxnative/`)**: Uses an isolated, headless Camoufox (anti-detect Firefox fork) instance via pure-Go WebDriver BiDi to run Google's BotGuard/WAA VM and generate fresh cryptographic proofs for requests.
+- **WAA Proof Generation (`internal/camoufoxnative/` & `internal/waa/`)**: Supports dual backends (`WAA_BACKEND=camoufox` or `go`):
+  - **Camoufox**: Isolated headless browser via pure-Go WebDriver BiDi.
+  - **Pure-Go**: In-process BotGuard VM running on an embedded SpiderMonkey-compatible `goja` engine simulating Firefox 152 DOM, requiring no browser process for request generation.
+- **Dual Upstream Channels (`UPSTREAM_CHANNELS=playground,build`)**: Routes requests across independent quota pools on the same account (`playground` MakerSuite RPC and `build` application proxy).
 - **Chrome OAuth / DBSC Import (`internal/chromeauth/`)**: Extracts Google credentials and Device Bound Session Credentials directly from local Chrome profiles on Windows.
 
 ---
@@ -78,6 +83,7 @@ AIStudio2API/
 │   ├── chromeauth/            # Windows Chrome OAuth / DBSC decryption and token service
 │   ├── config/                # Environment and configuration loading (read-only)
 │   ├── setup/                 # Interactive CLI setup and account onboarding
+│   ├── waa/                   # Pure-Go BotGuard VM runtime, Firefox 152 DOM, Goja fork
 │   └── webui/                 # Go embed for built frontend assets (dist/)
 ├── web/                       # Vue 3 admin dashboard source
 ├── docs/                      # Technical documentation and protocol specifications
