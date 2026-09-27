@@ -1,8 +1,8 @@
 ---
 branch: docs/agents-documentation
-last_commit: 0c91ef5
+last_commit: 7e88c77
 status: completed
-last_activity: 26-09-2026
+last_activity: 27-09-2026
 ---
 
 ## Task
@@ -32,6 +32,11 @@ This branch introduces:
    - `protocols.md`: MakerSuite `JSON+protobuf` array indexing, tool call correlation, and streaming decoders.
    - `workflows.md`: Step-by-step guides for upstream synchronization, capability extensions, and frontend builds.
 
+3. **v0.2.0 Architecture Documentation Extension**:
+   - `architecture.md`: Documented Pure-Go BotGuard VM (`internal/waa/` and `goja`), dual WAA backends (`WAA_BACKEND=camoufox|go`), dual upstream quota channels (`UPSTREAM_CHANNELS=playground,build`), Camoufox per-account disk cache isolation, and automated Google Drive OAuth consent.
+   - `protocols.md`: Documented Build channel proxy protocols (`ProxyStreamedCall`, `ProxyUnaryCall`), Omni interaction stream protocol (`CreateInteractionStream`), multi-speaker TTS modes (`VERBATIM` / `CONVERSATIONAL`), and realtime translation/transcription setups.
+   - `conventions.md`: Added translations for upstream concepts (upstream channels, pure-Go WAA, dual channels, occupation, interpreter).
+   - `AGENTS.md`: Updated architecture diagrams and directory structure with `internal/waa`.
 ## Result
 
 - Complete architectural and operational documentation suite available in the repository.
