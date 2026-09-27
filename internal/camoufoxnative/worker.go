@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/gorilla/websocket"
 )
 
@@ -23,7 +24,6 @@ var publicHeaderNames = []string{
 	"x-goog-api-key",
 	"x-goog-authuser",
 	"x-user-agent",
-	"x-aistudio-g1-tier",
 	"x-aistudio-visit-id",
 	"x-goog-ext-519733851-bin",
 	"user-agent",
@@ -38,6 +38,7 @@ type Worker struct {
 	contextID  string
 	state      State
 	closed     bool
+	cacheLock  *flock.Flock
 }
 
 // Start launches an isolated Camoufox instance and performs a bootstrap with the official WAA service.
@@ -58,12 +59,17 @@ func Start(ctx context.Context, options Options) (*Worker, error) {
 	if err != nil {
 		return nil, err
 	}
-	options.reportStartup(StartupLaunchingBrowser)
-	process, endpoint, err := launchBrowser(ctx, options, fingerprint)
+	cacheDirectory, cacheLock, err := lockAccountCache(options.StorageStatePath)
 	if err != nil {
 		return nil, err
 	}
-	worker := &Worker{process: process}
+	options.CacheDirectory = cacheDirectory
+	options.reportStartup(StartupLaunchingBrowser)
+	process, endpoint, err := launchBrowser(ctx, options, fingerprint)
+	if err != nil {
+		return nil, errors.Join(err, releaseAccountCache(cacheLock))
+	}
+	worker := &Worker{process: process, cacheLock: cacheLock}
 	failed := true
 	defer func() {
 		if failed {
@@ -101,10 +107,13 @@ func (worker *Worker) abort() error {
 	if connection != nil {
 		_ = connection.Close()
 	}
-	return process.Close()
+	if err := process.Close(); err != nil {
+		return err
+	}
+	return releaseAccountCache(worker.cacheLock)
 }
 
-// ProtocolHeaders returns the seven common headers constructed by the official site for GenerateContent.
+// ProtocolHeaders returns the six common headers constructed by the official site for GenerateContent.
 func (worker *Worker) ProtocolHeaders(ctx context.Context) (http.Header, error) {
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
@@ -180,6 +189,9 @@ func (worker *Worker) Close() error {
 		_ = connection.Close()
 	}
 	if err := process.Close(); err != nil {
+		return err
+	}
+	if err := releaseAccountCache(worker.cacheLock); err != nil {
 		return err
 	}
 	worker.mu.Lock()

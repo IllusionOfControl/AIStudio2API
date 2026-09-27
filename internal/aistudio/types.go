@@ -117,6 +117,13 @@ type Part struct {
 	CodeExecutionResult *CodeExecutionResult `json:"code_execution_result,omitempty"`
 	Thought             bool                 `json:"thought,omitempty"`
 	ThoughtSignature    string               `json:"thought_signature,omitempty"`
+	SpeechMetadata      *SpeechMetadata      `json:"speech_metadata,omitempty"`
+}
+
+// SpeechMetadata represents speaker and style for segmented speech text
+type SpeechMetadata struct {
+	Speaker string `json:"speaker,omitempty"`
+	Style   string `json:"style,omitempty"`
 }
 
 // Content represents a canonical message
@@ -186,6 +193,8 @@ type SpeakerVoiceConfig struct {
 type SpeechConfig struct {
 	VoiceName string               `json:"voice_name,omitempty"`
 	Speakers  []SpeakerVoiceConfig `json:"speakers,omitempty"`
+	// Mode specifies multi-speaker narration mode VERBATIM or CONVERSATIONAL
+	Mode string `json:"mode,omitempty"`
 }
 
 // TranscriptionConfig represents audio transcription parameters
@@ -253,6 +262,7 @@ type Model struct {
 	CapabilityOptions map[string][]string `json:"capability_options,omitempty"`
 	AccessModes       []int64             `json:"access_modes,omitempty"`
 	Paid              bool                `json:"paid,omitempty"`
+	Channels          []string            `json:"channels,omitempty"`
 }
 
 // Usage represents token usage for a single generation

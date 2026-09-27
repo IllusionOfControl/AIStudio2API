@@ -42,15 +42,7 @@ func newRuntime(
 	if err := launchCtx.Err(); err != nil {
 		return nil, nil, nil, err
 	}
-
-	requests.log("service", "INFO", fmt.Sprintf("Runtime assembly | 2/3 | Verifying Camoufox | accounts=%d", len(accounts)))
-
-	camoufoxPath, err := camoufoxnative.FindExecutable(launchCtx)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	login, err := aistudio.NewNativeLoginDriver(camoufoxPath, cfg.RequestTimeout)
+	camoufoxPath, login, err := prepareWAABackend(launchCtx, cfg, requests, len(accounts))
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -59,7 +51,7 @@ func newRuntime(
 
 	pool := aistudio.NewAccountPool(accounts, cfg.PerAccountConcurrency)
 	pool.SetRoutingStrategy(cfg.RoutingStrategy)
-
+	pool.SetUpstreamChannels(upstreamChannels(cfg.UpstreamChannels))
 	headers, err := newAccountHeaderProvider(accounts, cfg.Proxy)
 	if err != nil {
 		return nil, nil, nil, err
@@ -157,6 +149,9 @@ type accountWorkerManager struct {
 	dispatch        *dispatchQueue
 	victimMu        sync.Mutex
 	victims         map[string]struct{}
+	backgroundMu    sync.Mutex
+	background      context.Context
+	stopBackground  context.CancelFunc
 }
 
 type accountWorker struct {
@@ -173,6 +168,9 @@ type accountWorker struct {
 	warm           atomic.Bool
 	readyAt        atomic.Int64
 	generation     atomic.Uint64
+	busyUntil      time.Time
+	busyDelay      time.Duration
+	busyErr        error
 }
 
 type accountWorkerPreparer struct {
@@ -199,6 +197,16 @@ var errAccountWorkerOpening = errors.New("WAA worker is starting")
 // errAccountWorkerCapacity indicates that no worker slot is currently available
 var errAccountWorkerCapacity = errors.New("WAA worker capacity reached")
 var errAccountWorkerCleanupPending = errors.New("WAA worker cleanup pending")
+
+// errAccountRuntimeBusy indicates that the account WAA runtime lease is held by another process
+var errAccountRuntimeBusy = errors.New("WAA runtime occupied by another process")
+
+const (
+	// runtimeBusyInitialDelay is the initial redetection delay after an account is occupied by another process
+	runtimeBusyInitialDelay = 5 * time.Second
+	// runtimeBusyMaxDelay is the maximum redetection delay for an occupied account
+	runtimeBusyMaxDelay = time.Minute
+)
 
 const (
 	workerEvictionTimeout = 100 * time.Millisecond
@@ -292,7 +300,7 @@ func newAccountWorkerManager(
 		dispatch:        newDispatchQueue(),
 		victims:         make(map[string]struct{}),
 	}
-
+	manager.background, manager.stopBackground = context.WithCancel(lifecycle)
 	for _, account := range accounts {
 		if account == nil {
 			continue
@@ -305,15 +313,95 @@ func newAccountWorkerManager(
 }
 
 // expandInBackground starts a worker for the account in the background; once ready, queued requests are woken by scheduling signal
-func (manager *accountWorkerManager) expandInBackground(accountID string) {
+func (manager *accountWorkerManager) expandInBackground(accountID string, modelID string) {
+	ctx := manager.backgroundContext()
 	go func() {
-		_, err := manager.ensureWorker(manager.lifecycle, accountID, false)
-		if err == nil || manager.lifecycle.Err() != nil ||
-			errors.Is(err, errAccountWorkerOpening) || errors.Is(err, errAccountWorkerCapacity) {
+		_, err := manager.ensureWorker(ctx, accountID, modelID, false)
+		if err == nil || ctx.Err() != nil || errors.Is(err, errAccountWorkerOpening) ||
+			errors.Is(err, errAccountWorkerCapacity) || errors.Is(err, errAccountRuntimeBusy) {
 			return
 		}
 		manager.requests.log(accountID, "WARN", fmt.Sprintf("WAA worker background expansion failed | error=%v", err))
 	}()
+}
+
+// backgroundContext returns context used for background expansions, canceled on ResetAll
+func (manager *accountWorkerManager) backgroundContext() context.Context {
+	manager.backgroundMu.Lock()
+	defer manager.backgroundMu.Unlock()
+	return manager.background
+}
+
+// cancelBackgroundStartups cancels in-progress background expansions and creates a new context for future expansions
+func (manager *accountWorkerManager) cancelBackgroundStartups() {
+	manager.backgroundMu.Lock()
+	manager.stopBackground()
+	manager.background, manager.stopBackground = context.WithCancel(manager.lifecycle)
+	manager.backgroundMu.Unlock()
+}
+
+// markRuntimeBusy pauses scheduling for an account occupied by another process with exponential backoff, logged once per busy period
+func (manager *accountWorkerManager) markRuntimeBusy(account *accountWorker, cause error) error {
+	account.mu.Lock()
+	first := account.busyDelay == 0
+	if first {
+		account.busyDelay = runtimeBusyInitialDelay
+	} else {
+		account.busyDelay = min(account.busyDelay*2, runtimeBusyMaxDelay)
+	}
+	delay := account.busyDelay
+	account.busyUntil = time.Now().Add(delay)
+	account.busyErr = fmt.Errorf("%w: %w", errAccountRuntimeBusy, cause)
+	busyErr := account.busyErr
+	label := account.label
+	account.mu.Unlock()
+	if first {
+		manager.requests.log(label, "WARN", fmt.Sprintf(
+			"WAA Worker account occupied by another process | scheduling paused=%s | error=%s", delay, strings.TrimSpace(cause.Error()),
+		))
+	}
+	time.AfterFunc(delay, manager.notifyScheduling)
+	return busyErr
+}
+
+// clearRuntimeBusy restores account scheduling after reacquiring the runtime lease
+func (manager *accountWorkerManager) clearRuntimeBusy(account *accountWorker) {
+	account.mu.Lock()
+	wasBusy := account.busyDelay != 0
+	account.busyDelay = 0
+	account.busyUntil = time.Time{}
+	account.busyErr = nil
+	label := account.label
+	account.mu.Unlock()
+	if wasBusy {
+		manager.requests.log(label, "INFO", "WAA Worker account occupation cleared")
+	}
+}
+
+// runtimeAvailable filters accounts that are still in occupation backoff period, returning one occupation reason if any
+func (manager *accountWorkerManager) runtimeAvailable(accountIDs []string) ([]string, error) {
+	now := time.Now()
+	available := make([]string, 0, len(accountIDs))
+	var busyErr error
+	for _, accountID := range accountIDs {
+		manager.mu.RLock()
+		account := manager.accounts[accountID]
+		manager.mu.RUnlock()
+		if account == nil {
+			available = append(available, accountID)
+			continue
+		}
+		account.mu.Lock()
+		busy := now.Before(account.busyUntil)
+		if busy && busyErr == nil {
+			busyErr = account.busyErr
+		}
+		account.mu.Unlock()
+		if !busy {
+			available = append(available, accountID)
+		}
+	}
+	return available, busyErr
 }
 
 // workerIdleTimeout specifies how long a worker exceeding the warm pool target remains idle before being stopped
@@ -597,6 +685,7 @@ func (update *accountWorkerUpdate) Discard() {
 
 // ResetAll shuts down all current account workers while retaining rebuild capability.
 func (manager *accountWorkerManager) ResetAll() error {
+	manager.cancelBackgroundStartups()
 	manager.mu.RLock()
 	accountIDs := make([]string, 0, len(manager.accounts))
 	for accountID := range manager.accounts {
@@ -896,8 +985,8 @@ func (manager *accountWorkerManager) WorkerFailed(accountID string) bool {
 }
 
 // Worker returns a general WAA preparer for an account within active limits.
-func (manager *accountWorkerManager) Worker(ctx context.Context, accountID string, _ string) (aistudio.ProtectedPreparer, error) {
-	return manager.ensureWorker(ctx, accountID, true)
+func (manager *accountWorkerManager) Worker(ctx context.Context, accountID string, modelID string) (aistudio.ProtectedPreparer, error) {
+	return manager.ensureWorker(ctx, accountID, modelID, true)
 }
 
 func (manager *accountWorkerManager) readyWorker(accountID string, bootstrapModel string) (aistudio.ProtectedPreparer, bool, error) {
@@ -996,6 +1085,10 @@ func (manager *accountWorkerManager) startReservedWorker(
 	if runtimeLease == nil {
 		var err error
 		runtimeLease, err = aistudio.AcquireAccountRuntimeLease(account.id)
+		if errors.Is(err, aistudio.ErrAccountLeased) {
+			account.startupMu.Unlock()
+			return nil, manager.markRuntimeBusy(account, err)
+		}
 		if err != nil {
 			account.startupMu.Unlock()
 			manager.requests.log(label, "ERROR", fmt.Sprintf(
@@ -1005,6 +1098,7 @@ func (manager *accountWorkerManager) startReservedWorker(
 			return nil, &accountWorkerInitError{err: err}
 		}
 		ownsLease = true
+		manager.clearRuntimeBusy(account)
 	}
 
 	manager.requests.log(label, "INFO", "WAA worker startup | 1/7 | Initializing page | page_model="+bootstrapModel)
@@ -1015,8 +1109,7 @@ func (manager *accountWorkerManager) startReservedWorker(
 		step, message := workerStartupProgress(stage)
 		manager.requests.log(label, "INFO", fmt.Sprintf("WAA worker startup | %d/7 | %s", step, message))
 	}
-
-	worker, initErr := aistudio.NewNativeWorker(initCtx, account.id, options)
+	worker, initErr := newWAAWorker(initCtx, account.id, options)
 	cancel()
 
 	if initErr != nil {
@@ -1246,6 +1339,7 @@ func (manager *accountWorkerManager) evictIdleWorker(ctx context.Context, accoun
 func (manager *accountWorkerManager) ensureWorker(
 	ctx context.Context,
 	accountID string,
+	modelID string,
 	waitForOpening bool,
 ) (aistudio.ProtectedPreparer, error) {
 	bootstrapModel, err := manager.pool.BootstrapModel(accountID)
@@ -1329,9 +1423,9 @@ func (manager *accountWorkerManager) ensureWorker(
 		}
 		victim := ""
 		if len(manager.openings) == 0 {
-			victim = manager.idleWarmVictim(accountID)
+			victim = manager.idleWarmVictimFor(accountID, modelID, false)
 		} else {
-			victim = manager.idleWarmVictimFor(accountID, "", true)
+			victim = manager.idleWarmVictimFor(accountID, modelID, true)
 		}
 		if victim == "" {
 			manager.rebalanceMu.Unlock()
@@ -1365,7 +1459,23 @@ func (manager *accountWorkerManager) ensureWorker(
 				manager.rebalanceMu.Unlock()
 				return nil, errors.Join(ctxErr, discardErr)
 			}
-
+			if victim == "" {
+				victim = manager.idleWarmVictimFor(accountID, modelID, false)
+				if victim != "" {
+					manager.reserveVictim(victim)
+				}
+			}
+			if victim == "" {
+				manager.rebalanceMu.Unlock()
+				if err := waitWarmCandidate(ctx, 100*time.Millisecond); err != nil {
+					manager.rebalanceMu.Lock()
+					discardErr := discardAccountWorker(pending)
+					manager.finishOpening(accountID, opening)
+					manager.rebalanceMu.Unlock()
+					return nil, errors.Join(err, discardErr)
+				}
+				continue
+			}
 			evicted, evictionErr := manager.evictIdleWorker(ctx, victim)
 			if evictionErr == nil && evicted {
 				activationErr := activateAccountWorker(pending)
@@ -1391,33 +1501,15 @@ func (manager *accountWorkerManager) ensureWorker(
 				return nil, errors.Join(evictionErr, ctx.Err(), discardErr)
 			}
 			manager.releaseVictim(victim)
-			victim = manager.idleWarmVictim(accountID)
-			if victim != "" {
-				manager.reserveVictim(victim)
-			}
+			victim = ""
 			manager.rebalanceMu.Unlock()
 
-			if victim == "" {
-				if err := waitWarmCandidate(ctx, 100*time.Millisecond); err != nil {
-					manager.rebalanceMu.Lock()
-					discardErr := discardAccountWorker(pending)
-					manager.finishOpening(accountID, opening)
-					manager.rebalanceMu.Unlock()
-					return nil, errors.Join(err, discardErr)
-				}
-				manager.rebalanceMu.Lock()
-				victim = manager.idleWarmVictim(accountID)
-				if victim != "" {
-					manager.reserveVictim(victim)
-				}
-				manager.rebalanceMu.Unlock()
-			}
 		}
 	}
 }
 
-func (manager *accountWorkerManager) promote(ctx context.Context, accountID string, _ string) (aistudio.ProtectedPreparer, error) {
-	return manager.ensureWorker(ctx, accountID, false)
+func (manager *accountWorkerManager) promote(ctx context.Context, accountID string, modelID string) (aistudio.ProtectedPreparer, error) {
+	return manager.ensureWorker(ctx, accountID, modelID, false)
 }
 
 func (manager *accountWorkerManager) withoutOpening(accountIDs []string) ([]string, bool) {
@@ -1513,11 +1605,16 @@ func (manager *accountWorkerManager) fillWarm(ctx context.Context, first chan<- 
 		batchSize := min(manager.warmConcurrency, remaining)
 
 		groups, err := manager.classifyBootstrapCandidates(ctx, warm)
+		var runtimeBusyErr error
 		if err != nil {
 			failures = append(failures, err)
 		} else {
 			groups.StandbyReady = excludeAccountIDs(groups.StandbyReady, failedAccounts)
 			groups.StandbyBusy = excludeAccountIDs(groups.StandbyBusy, failedAccounts)
+			var readyBusyErr, standbyBusyErr error
+			groups.StandbyReady, readyBusyErr = manager.runtimeAvailable(groups.StandbyReady)
+			groups.StandbyBusy, standbyBusyErr = manager.runtimeAvailable(groups.StandbyBusy)
+			runtimeBusyErr = errors.Join(readyBusyErr, standbyBusyErr)
 		}
 
 		pendingBusy := false
@@ -1547,11 +1644,13 @@ func (manager *accountWorkerManager) fillWarm(ctx context.Context, first chan<- 
 				notify(nil)
 				return
 			}
-
+			if runtimeBusyErr != nil {
+				failures = append(failures, runtimeBusyErr)
+			}
 			if len(failures) == 0 {
 				failures = append(failures, aistudio.ErrNoEligibleAccount)
 			}
-			notify(errors.Join(failures...))
+			notify(fmt.Errorf("no accounts available for prewarming: %w", errors.Join(failures...)))
 			return
 		}
 
@@ -2016,8 +2115,7 @@ func (service *trackedService) Start(ctx context.Context, launching func()) ([]a
 	service.requests.log("service", "INFO", fmt.Sprintf(
 		"Generation service startup | 1/2 | Preparing model catalog | cached=%d", len(models),
 	))
-
-	catalogReady, catalogDone := service.startModelCatalogRefresh(dataContext)
+	catalogReady, catalogSynced, catalogDone := service.startModelCatalogRefresh(dataContext)
 	service.lifecycleMu.Lock()
 	if service.dataContext == dataContext {
 		service.modelRefreshDone = catalogDone
@@ -2047,20 +2145,21 @@ func (service *trackedService) Start(ctx context.Context, launching func()) ([]a
 		"Generation service startup | 2/2 | Prewarming WAA workers | models=%d | target=%d",
 		len(models), service.workers.PrewarmTarget(),
 	))
-
-	firstWarm := service.workers.StartPrewarm(dataContext)
-	select {
-	case <-dataContext.Done():
+	synced, warmErr := service.waitFirstWarm(dataContext, catalogSynced)
+	if warmErr != nil && !synced && dataContext.Err() == nil {
+		select {
+		case <-dataContext.Done():
+		case <-catalogSynced:
+			_, warmErr = service.waitFirstWarm(dataContext, catalogSynced)
+		}
+	}
+	if dataContext.Err() != nil {
 		stopCaller()
 		return nil, false, service.finishLaunch(transitionDone, dataCancel, catalogDone, dataContext.Err())
-	case warmErr, ok := <-firstWarm:
-		if !ok {
-			warmErr = fmt.Errorf("WAA prewarming returned no ready accounts")
-		}
-		if warmErr != nil {
-			stopCaller()
-			return nil, false, service.finishLaunch(transitionDone, dataCancel, catalogDone, warmErr)
-		}
+	}
+	if warmErr != nil {
+		stopCaller()
+		return nil, false, service.finishLaunch(transitionDone, dataCancel, catalogDone, warmErr)
 	}
 
 	if !stopCaller() {
@@ -2073,6 +2172,27 @@ func (service *trackedService) Start(ctx context.Context, launching func()) ([]a
 	}
 
 	return models, true, nil
+}
+
+// waitFirstWarm starts prewarming and waits for the first ready worker, returning whether the initial catalog sync completed
+func (service *trackedService) waitFirstWarm(ctx context.Context, catalogSynced <-chan struct{}) (bool, error) {
+	firstWarm := service.workers.StartPrewarm(ctx)
+	var warmErr error
+	select {
+	case <-ctx.Done():
+		return true, ctx.Err()
+	case err, ok := <-firstWarm:
+		warmErr = err
+		if !ok {
+			warmErr = fmt.Errorf("WAA prewarming returned no ready accounts")
+		}
+	}
+	select {
+	case <-catalogSynced:
+		return true, warmErr
+	default:
+		return false, warmErr
+	}
 }
 
 // finishModelLaunch applies launch-time revisions and atomically enables the generation service.
@@ -2303,6 +2423,11 @@ func (service *trackedService) Models(context.Context) ([]aistudio.Model, error)
 	return service.pool.EligibleModels(service.modelSnapshot()), nil
 }
 
+// catalogModels returns the complete catalog and available channels for each model used by the admin page
+func (service *trackedService) catalogModels() []aistudio.Model {
+	return service.pool.CatalogModels(service.modelSnapshot())
+}
+
 func (service *trackedService) modelSnapshot() []aistudio.Model {
 	service.modelsMu.RLock()
 	models := append([]aistudio.Model{}, service.models...)
@@ -2323,7 +2448,7 @@ func (service *trackedService) publishModelAccess() {
 	}
 
 	service.requests.publish(api.AdminEvent{Type: "accounts", Data: map[string]any{"accounts": accounts}})
-	service.requests.publish(api.AdminEvent{Type: "models", Data: map[string]any{"models": service.modelSnapshot()}})
+	service.requests.publish(api.AdminEvent{Type: "models", Data: map[string]any{"models": service.catalogModels()}})
 }
 
 type accountModelRefreshResult struct {
@@ -2334,8 +2459,9 @@ type accountModelRefreshResult struct {
 }
 
 // startModelCatalogRefresh concurrently refreshes all account model catalogs and handles failures.
-func (service *trackedService) startModelCatalogRefresh(ctx context.Context) (<-chan error, <-chan struct{}) {
+func (service *trackedService) startModelCatalogRefresh(ctx context.Context) (<-chan error, <-chan struct{}, <-chan struct{}) {
 	ready := make(chan error, 1)
+	synced := make(chan struct{})
 	done := make(chan struct{})
 	accountIDs := service.modelCatalogAccountIDs()
 
@@ -2383,7 +2509,7 @@ func (service *trackedService) startModelCatalogRefresh(ctx context.Context) (<-
 			ready <- launchErr
 		}
 		close(ready)
-
+		close(synced)
 		if ctx.Err() != nil {
 			return
 		}
@@ -2399,8 +2525,7 @@ func (service *trackedService) startModelCatalogRefresh(ctx context.Context) (<-
 
 		service.retryModelCatalogs(ctx)
 	}()
-
-	return ready, done
+	return ready, synced, done
 }
 
 func (service *trackedService) modelCatalogAccountIDs() []string {
@@ -2937,6 +3062,10 @@ func (service *trackedService) acquireWarmLease(ctx context.Context, selection a
 		groups.WarmBusy = excludeAccountIDs(groups.WarmBusy, failedWorkers)
 		groups.StandbyReady = excludeAccountIDs(groups.StandbyReady, failedWorkers)
 		groups.StandbyBusy = excludeAccountIDs(groups.StandbyBusy, failedWorkers)
+		var readyBusyErr, standbyBusyErr error
+		groups.StandbyReady, readyBusyErr = service.workers.runtimeAvailable(groups.StandbyReady)
+		groups.StandbyBusy, standbyBusyErr = service.workers.runtimeAvailable(groups.StandbyBusy)
+		runtimeBusyErr := errors.Join(readyBusyErr, standbyBusyErr)
 		candidates := len(groups.WarmReady) + len(groups.WarmAvailable) + len(groups.WarmBusy) +
 			len(groups.StandbyReady) + len(groups.StandbyBusy)
 		standbyReady, opening := service.workers.withoutOpening(groups.StandbyReady)
@@ -2970,7 +3099,7 @@ func (service *trackedService) acquireWarmLease(ctx context.Context, selection a
 			if cold := service.workers.coldAccounts(standby); len(cold) > 0 {
 				standby = cold
 			}
-			service.workers.expandInBackground(standby[0])
+			service.workers.expandInBackground(standby[0], selection.ModelID)
 			if err := wait(schedulingRecheck); err != nil {
 				return nil, err
 			}
@@ -3037,7 +3166,11 @@ func (service *trackedService) acquireWarmLease(ctx context.Context, selection a
 		}
 
 		if !groups.EarliestCooldown.IsZero() {
-			if err := wait(min(time.Until(groups.EarliestCooldown), schedulingRecheck)); err != nil {
+			remaining := time.Until(groups.EarliestCooldown)
+			if remaining > cooldownQueueLimit {
+				return nil, &aistudio.AllCoolingError{ModelID: selection.ModelID, Until: groups.EarliestCooldown}
+			}
+			if err := wait(min(remaining, schedulingRecheck)); err != nil {
 				return nil, err
 			}
 			continue
@@ -3051,12 +3184,18 @@ func (service *trackedService) acquireWarmLease(ctx context.Context, selection a
 		if promoteFailure != nil {
 			return nil, promoteFailure
 		}
+		if runtimeBusyErr != nil {
+			return nil, runtimeBusyErr
+		}
 		return nil, service.pool.NoEligibleError(selection)
 	}
 }
 
 // schedulingRecheck is the fallback polling interval when waiting for scheduling signals.
 const schedulingRecheck = time.Second
+
+// cooldownQueueLimit specifies maximum queue duration when all eligible accounts are cooling down, covering minute quota windows
+const cooldownQueueLimit = time.Minute
 
 // waitScheduling waits for account or worker schedulable state change, fallback interval, or request cancellation.
 func waitScheduling(ctx context.Context, changed <-chan struct{}, delay time.Duration) error {
@@ -3286,7 +3425,9 @@ func (service *trackedService) generateWithRetry(
 			AccountID:  selectionAccountID,
 			ResourceID: selectionResourceID,
 		}
-
+		if resourceID != "" || request.Config.SpeechConfig != nil && request.Config.SpeechConfig.Mode != "" {
+			selection.PlaygroundOnly = true
+		}
 		if (unbound || fileBound) && len(attempted) > 0 {
 			enabled, _ := service.pool.EnabledAccounts()
 			for _, accountID := range enabled {
@@ -3298,7 +3439,8 @@ func (service *trackedService) generateWithRetry(
 
 		nextLease, acquireErr := service.acquireWarmLease(requestCtx, selection)
 		if acquireErr != nil {
-			if fileBound && !copyFiles && errors.Is(acquireErr, aistudio.ErrNoEligibleAccount) && requestCtx.Err() == nil {
+			var ownerCooling *aistudio.AllCoolingError
+			if fileBound && !copyFiles && (errors.Is(acquireErr, aistudio.ErrNoEligibleAccount) || errors.As(acquireErr, &ownerCooling)) && requestCtx.Err() == nil {
 				copyFiles = true
 				continue
 			}
@@ -3320,10 +3462,11 @@ func (service *trackedService) generateWithRetry(
 		attempted[request.AccountID] = struct{}{}
 
 		accountLabel := lease.Account().Config.Label
+		api.SetAccessLogChannel(requestCtx, string(lease.Channel()))
 		api.SetAccessLogTarget(requestCtx, modelID, accountLabel)
 		service.requests.markRunning(request.ID, request.AccountID, accountLabel)
+		service.requests.markChannel(request.ID, string(lease.Channel()))
 		service.requests.logRequestProgress(request.ID, accountLabel, "INFO", "Waiting for upstream response")
-
 		attemptCtx := aistudio.ContextWithAccountLease(requestCtx, lease)
 		var attemptCopies *aistudio.TemporaryFileCopies
 		copiedFileCount := 0
@@ -3461,8 +3604,8 @@ func (service *trackedService) generateWithRetry(
 		}
 
 		if cooldown, ok := aistudio.QuotaCooldownForError(err, time.Now()); ok {
-			modelAccessScope := modelID
-			scopeLabel := modelID
+			modelAccessScope := lease.CooldownScope(modelID)
+			scopeLabel := modelAccessScope
 			if cooldown.Global {
 				modelAccessScope = ""
 				scopeLabel = "global"
@@ -3479,6 +3622,10 @@ func (service *trackedService) generateWithRetry(
 					"Account cooldown | type=%s | scope=%s | reset=%s",
 					cooldown.Kind, scopeLabel, cooldown.Until.Format(time.RFC3339),
 				))
+				if !cooldown.Global && service.pool.AccountChannelAvailable(request.AccountID, selection) {
+					delete(attempted, request.AccountID)
+					maxAttempts++
+				}
 			}
 		}
 
@@ -3842,7 +3989,7 @@ func (service *trackedService) forwardEvents(
 		if !verified && event.Kind == aistudio.EventFinish {
 			verified = true
 			service.markModelAccessVerifiedAsync(
-				lease.Account().ID, accountLabel, requestedModelID, accessGeneration, lease.CheckedAt(),
+				lease.Account().ID, accountLabel, lease.CooldownScope(requestedModelID), accessGeneration, lease.CheckedAt(),
 			)
 		}
 	}

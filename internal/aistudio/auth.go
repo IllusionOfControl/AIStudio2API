@@ -122,6 +122,7 @@ type IsolatedLoginResult struct {
 	StorageState StorageState
 	Email        string
 	VerifiedAt   time.Time
+	DriveError   string
 }
 
 // LoginVerification represents verification result of login state by an isolated runtime

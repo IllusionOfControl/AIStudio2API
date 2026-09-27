@@ -713,6 +713,10 @@ func (s *PooledService) UploadInlineMediaToLease(
 	if target == nil || target.Account() == nil || target.pool != s.pool {
 		return nil, nil, fmt.Errorf("target account lease is not initialized")
 	}
+	if target.Channel() == ChannelBuild {
+		// Gemini API requests proxied by Build carry inlineData directly
+		return contents, temporary, nil
+	}
 	if temporary == nil {
 		temporary = &TemporaryFileCopies{
 			client: s.client, lease: target, sources: make(map[string]struct{}),

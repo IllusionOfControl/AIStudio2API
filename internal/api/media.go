@@ -101,7 +101,11 @@ func (s *server) handleOpenAIImages(w http.ResponseWriter, r *http.Request) {
 		data = append(data, item)
 	}
 	if len(data) == 0 {
-		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", "AI Studio did not return an image")
+		message := "AI Studio did not return an image"
+		if reason := result.finishReason; reason != "" && reason != "stop" {
+			message += ": finish reason " + reason
+		}
+		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", message)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"created": time.Now().Unix(), "data": data})
@@ -155,15 +159,15 @@ func (s *server) handleOpenAISpeech(w http.ResponseWriter, r *http.Request) {
 	if voice == "" {
 		voice = "Zephyr"
 	}
-	input := strings.TrimSpace(request.Input)
+	part := aistudio.Part{Text: strings.TrimSpace(request.Input)}
 	if instructions := strings.TrimSpace(request.Instructions); instructions != "" {
-		input = instructions + "\n\n" + input
+		part.SpeechMetadata = &aistudio.SpeechMetadata{Style: instructions}
 	}
 	events, err := s.service.Generate(r.Context(), aistudio.GenerateRequest{
 		ID:    newID("speech"),
 		Model: request.Model,
 		Contents: []aistudio.Content{{
-			Role: aistudio.RoleUser, Parts: []aistudio.Part{{Text: input}},
+			Role: aistudio.RoleUser, Parts: []aistudio.Part{part},
 		}},
 		Config: aistudio.GenerationConfig{
 			ResponseModalities: []aistudio.ResponseModality{aistudio.ResponseModalityAudio},

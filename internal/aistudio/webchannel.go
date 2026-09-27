@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf16"
+	"unicode/utf8"
 )
 
 const (
@@ -77,6 +79,12 @@ type BidiSession struct {
 	qualificationCheckedAt time.Time
 	qualificationLastAt    time.Time
 
+	outboxMu   sync.Mutex
+	outbox     []bidiOutgoing
+	outboxErr  error
+	outboxWake chan struct{}
+	outboxOnce sync.Once
+
 	events      chan BidiEvent
 	wireEvents  chan BidiEvent
 	forwarding  chan bool
@@ -86,6 +94,16 @@ type BidiSession struct {
 	releaseErr  error
 	closeErr    error
 	closeOnce   sync.Once
+}
+
+// bidiForwardBatchLimit is the maximum number of messages carried in a single forward channel POST on official site
+const bidiForwardBatchLimit = 25
+
+// bidiOutgoing represents a WebChannel message waiting to be sent over the forward channel
+type bidiOutgoing struct {
+	payload   []byte
+	qualifies bool
+	done      chan error
 }
 
 var _ BidiService = (*PooledService)(nil)
@@ -142,6 +160,9 @@ func (s *PooledService) OpenBidi(ctx context.Context, request BidiRequest) (*Bid
 			return nil, err
 		}
 		request.generationDefaults = entry.defaults
+		if request.Mode == BidiModeLive {
+			request.variant = bidiVariantFor(entry.model)
+		}
 		runtime := RequestContext{}
 		if s.client.contextProvider != nil {
 			runtime, err = s.client.contextProvider.RequestContext(ctx, request.AccountID)
@@ -285,26 +306,26 @@ func (s *BidiSession) SendText(ctx context.Context, text string) error {
 	}
 	return s.sendProtected(
 		ctx, body, binding,
-		s.modelAccessScope != "" && (s.mode == BidiModeRobotics || s.modelAccessScope == s.model),
+		s.modelAccessScope != "" && (s.mode == BidiModeRobotics || s.modelAccessScope == s.model), true,
 	)
 }
 
-// SendMedia sends an official real-time audio or image input frame
+// SendMedia queues an official real-time audio or image input frame into the forward channel; send failures are returned on subsequent calls
 func (s *BidiSession) SendMedia(ctx context.Context, mimeType string, data []byte) error {
 	body, binding, err := EncodeBidiMediaRequest(mimeType, data)
 	if err != nil {
 		return err
 	}
-	return s.sendProtected(ctx, body, binding, s.modelAccessScope != "")
+	return s.sendProtected(ctx, body, binding, s.modelAccessScope != "", false)
 }
 
-// SendMediaEnd sends an official real-time media end frame
+// SendMediaEnd sends an official real-time media end frame and waits for previously queued media frames to be delivered
 func (s *BidiSession) SendMediaEnd(ctx context.Context) error {
 	body, binding, err := EncodeBidiMediaEndRequest()
 	if err != nil {
 		return err
 	}
-	return s.sendProtected(ctx, body, binding, false)
+	return s.sendProtected(ctx, body, binding, false, true)
 }
 
 // SendToolResponses sends official function response frames
@@ -313,7 +334,7 @@ func (s *BidiSession) SendToolResponses(ctx context.Context, results []FunctionR
 	if err != nil {
 		return err
 	}
-	return s.sendProtected(ctx, body, binding, false)
+	return s.sendProtected(ctx, body, binding, false, true)
 }
 
 // Close cancels network reading and waits for account lease release
@@ -545,7 +566,7 @@ func (s *BidiSession) sendPreparedSetup(ctx context.Context, body []byte) error 
 	return s.postMessage(ctx, body, false)
 }
 
-func (s *BidiSession) sendProtected(ctx context.Context, body []byte, binding string, qualifies bool) error {
+func (s *BidiSession) sendProtected(ctx context.Context, body []byte, binding string, qualifies bool, wait bool) error {
 	requestCtx, cancel := context.WithCancel(ctx)
 	stopSession := context.AfterFunc(s.ctx, cancel)
 	defer func() {
@@ -562,20 +583,111 @@ func (s *BidiSession) sendProtected(ctx context.Context, body []byte, binding st
 	if len(prepared.Body) == 0 {
 		return fmt.Errorf("WAA preparer returned empty bidi request")
 	}
-	return s.postMessage(requestCtx, prepared.Body, qualifies)
+	return s.enqueueMessage(requestCtx, prepared.Body, qualifies, wait)
 }
 
-func (s *BidiSession) postMessage(ctx context.Context, payload []byte, qualifies bool) (resultErr error) {
+// enqueueMessage delivers message to the forward channel in invocation order, waiting for ACK when wait is true
+func (s *BidiSession) enqueueMessage(ctx context.Context, payload []byte, qualifies bool, wait bool) error {
+	s.outboxOnce.Do(func() {
+		s.outboxWake = make(chan struct{}, 1)
+		go s.runForwardChannel()
+	})
+	entry := bidiOutgoing{payload: payload, qualifies: qualifies}
+	if wait {
+		entry.done = make(chan error, 1)
+	}
+	s.outboxMu.Lock()
+	if s.outboxErr != nil {
+		err := s.outboxErr
+		s.outboxMu.Unlock()
+		return err
+	}
+	s.outbox = append(s.outbox, entry)
+	s.outboxMu.Unlock()
+	select {
+	case s.outboxWake <- struct{}{}:
+	default:
+	}
+	if !wait {
+		return nil
+	}
+	select {
+	case err := <-entry.done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// runForwardChannel batches queued messages into multi-req POST requests matching official WebChannel behavior
+func (s *BidiSession) runForwardChannel() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.failOutbox(s.ctx.Err())
+			return
+		case <-s.outboxWake:
+		}
+		for {
+			s.outboxMu.Lock()
+			count := min(len(s.outbox), bidiForwardBatchLimit)
+			batch := append([]bidiOutgoing(nil), s.outbox[:count]...)
+			s.outbox = s.outbox[count:]
+			s.outboxMu.Unlock()
+			if count == 0 {
+				break
+			}
+			err := s.postBatch(s.ctx, batch)
+			for _, entry := range batch {
+				if entry.done != nil {
+					entry.done <- err
+				}
+			}
+			if err != nil {
+				s.failOutbox(err)
+				return
+			}
+		}
+	}
+}
+
+// failOutbox fails unsent and queued messages with forward channel error
+func (s *BidiSession) failOutbox(err error) {
+	s.outboxMu.Lock()
+	pending := s.outbox
+	s.outbox = nil
+	if s.outboxErr == nil {
+		s.outboxErr = err
+	}
+	s.outboxMu.Unlock()
+	for _, entry := range pending {
+		if entry.done != nil {
+			entry.done <- err
+		}
+	}
+}
+
+func (s *BidiSession) postMessage(ctx context.Context, payload []byte, qualifies bool) error {
+	return s.postBatch(ctx, []bidiOutgoing{{payload: payload, qualifies: qualifies}})
+}
+
+func (s *BidiSession) postBatch(ctx context.Context, batch []bidiOutgoing) (resultErr error) {
 	s.sendMu.Lock()
 	defer s.sendMu.Unlock()
-	if qualifies {
-		s.beginQualificationAttempt()
-		defer func() {
-			if resultErr != nil {
+	qualifying := 0
+	for _, entry := range batch {
+		if entry.qualifies {
+			s.beginQualificationAttempt()
+			qualifying++
+		}
+	}
+	defer func() {
+		if resultErr != nil {
+			for range qualifying {
 				s.rollbackQualificationAttempt()
 			}
-		}()
-	}
+		}
+	}()
 	requestCtx, cancel := context.WithCancel(ctx)
 	stopSession := context.AfterFunc(s.ctx, cancel)
 	defer func() {
@@ -600,13 +712,13 @@ func (s *BidiSession) postMessage(ctx context.Context, payload []byte, qualifies
 		"zx":         []string{zx},
 		"t":          []string{"1"},
 	}
-	form := url.Values{
-		"count":         []string{"1"},
-		"ofs":           []string{strconv.FormatInt(offset, 10)},
-		"req0___data__": []string{string(payload)},
+	var form strings.Builder
+	form.WriteString("count=" + strconv.Itoa(len(batch)) + "&ofs=" + strconv.FormatInt(offset, 10))
+	for index, entry := range batch {
+		form.WriteString("&req" + strconv.Itoa(index) + "___data__=" + url.QueryEscape(string(entry.payload)))
 	}
 	requestURL := bidiWebChannelURL + "?" + query.Encode()
-	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, requestURL, strings.NewReader(form.Encode()))
+	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, requestURL, strings.NewReader(form.String()))
 	if err != nil {
 		return fmt.Errorf("create bidi WebChannel message: %w", err)
 	}
@@ -632,7 +744,7 @@ func (s *BidiSession) postMessage(ctx context.Context, payload []byte, qualifies
 	}
 	s.stateMu.Lock()
 	s.rid++
-	s.offset++
+	s.offset += int64(len(batch))
 	s.stateMu.Unlock()
 	return nil
 }
@@ -1103,8 +1215,8 @@ func readWebChannelFrames(source io.Reader, emit func(json.RawMessage) error) er
 		if err != nil || length < 0 {
 			return fmt.Errorf("invalid bidi WebChannel frame length: %q", strings.TrimSpace(lengthLine))
 		}
-		frame := make([]byte, length)
-		if _, err := io.ReadFull(reader, frame); err != nil {
+		frame, err := readUTF16Units(reader, length)
+		if err != nil {
 			return fmt.Errorf("read bidi WebChannel frame: %w", err)
 		}
 		if !json.Valid(frame) {
@@ -1114,6 +1226,29 @@ func readWebChannelFrames(source io.Reader, emit func(json.RawMessage) error) er
 			return err
 		}
 	}
+}
+
+// readUTF16Units reads UTF-8 bytes corresponding to the UTF-16 code units counted in the WebChannel length prefix
+func readUTF16Units(reader *bufio.Reader, units int) ([]byte, error) {
+	frame := make([]byte, 0, units)
+	for units > 0 {
+		value, size, err := reader.ReadRune()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil, io.ErrUnexpectedEOF
+			}
+			return nil, err
+		}
+		if value == utf8.RuneError && size == 1 {
+			return nil, fmt.Errorf("bidi WebChannel frame contains invalid UTF-8")
+		}
+		frame = utf8.AppendRune(frame, value)
+		units -= utf16.RuneLen(value)
+	}
+	if units < 0 {
+		return nil, fmt.Errorf("bidi WebChannel frame length truncates surrogate pair")
+	}
+	return frame, nil
 }
 
 func newWebChannelRID() (int64, error) {

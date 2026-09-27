@@ -203,9 +203,10 @@ func (admin *runtimeAdmin) CreateAccount(ctx context.Context, input api.AccountC
 		))
 		return api.AdminAccount{}, err
 	}
-
+	if result.DriveError != "" {
+		admin.requests.log("auth", "WARN", "Account creation | Drive authorization failed | error="+result.DriveError)
+	}
 	admin.requests.log("auth", "INFO", "Account creation | 2/2 | Saving storage state")
-
 	if _, err := aistudio.NewSigner().Sign(result.StorageState); err != nil {
 		return api.AdminAccount{}, fmt.Errorf("storage state cannot be used with AI Studio: %w", err)
 	}
@@ -506,9 +507,10 @@ func (admin *runtimeAdmin) LoginAccount(ctx context.Context, accountID string) (
 			invalidAccount(fmt.Errorf("logged in email does not match account: %s", result.Email)), lease.Release(),
 		)
 	}
-
+	if result.DriveError != "" {
+		admin.requests.log(account.Config.Label, "WARN", "Account login | Drive authorization failed | error="+result.DriveError)
+	}
 	admin.requests.log(account.Config.Label, "INFO", "Account login | 2/2 | Saving storage state")
-
 	if _, err := aistudio.NewSigner().Sign(result.StorageState); err != nil {
 		return api.AdminAccount{}, errors.Join(fmt.Errorf("storage state cannot be used with AI Studio: %w", err), lease.Release())
 	}
@@ -740,7 +742,7 @@ func (admin *runtimeAdmin) syncAccountModelCatalog(ctx context.Context, account 
 
 // publishRuntimeSnapshot broadcasts authoritative runtime state to admin subscribers.
 func (admin *runtimeAdmin) publishRuntimeSnapshot(ctx context.Context, status api.AdminStatus) {
-	models, err := admin.service.Models(ctx)
+	models, err := admin.Models(ctx)
 	if err != nil {
 		return
 	}
@@ -855,16 +857,16 @@ func (admin *runtimeAdmin) Cooldowns(context.Context) ([]api.AdminCooldown, erro
 				effective[modelID] = global
 			}
 		}
-
-		for modelID, cooldown := range account.Cooldowns {
-			if modelID == "*" || !cooldown.Active(now) {
+		for key, cooldown := range account.Cooldowns {
+			if key == "*" || !cooldown.Active(now) {
 				continue
 			}
-			if _, ok := models[modelID]; !ok {
+			modelID, build := strings.CutPrefix(key, string(aistudio.ChannelBuild)+":")
+			if _, ok := models[modelID]; !ok && !build {
 				continue
 			}
-			if current, ok := effective[modelID]; !ok || cooldown.Until.After(current.Until) {
-				effective[modelID] = cooldown
+			if current, ok := effective[key]; !ok || cooldown.Until.After(current.Until) {
+				effective[key] = cooldown
 			}
 		}
 
@@ -873,15 +875,16 @@ func (admin *runtimeAdmin) Cooldowns(context.Context) ([]api.AdminCooldown, erro
 			modelIDs = append(modelIDs, modelID)
 		}
 		sort.Strings(modelIDs)
-
-		for _, modelID := range modelIDs {
-			cooldown := effective[modelID]
+		for _, key := range modelIDs {
+			cooldown := effective[key]
+			channel := string(aistudio.ChannelPlayground)
+			modelID, build := strings.CutPrefix(key, string(aistudio.ChannelBuild)+":")
+			if build {
+				channel = string(aistudio.ChannelBuild)
+			}
 			cooldowns = append(cooldowns, api.AdminCooldown{
-				AccountID:    account.ID,
-				AccountLabel: account.Label,
-				ModelID:      modelID,
-				Until:        cooldown.Until,
-				Reason:       cooldown.Reason,
+				AccountID: account.ID, AccountLabel: account.Label, Channel: channel,
+				ModelID: modelID, Until: cooldown.Until, Reason: cooldown.Reason,
 			})
 		}
 	}
@@ -905,9 +908,9 @@ type adminEventSource interface {
 	Cooldowns(context.Context) ([]api.AdminCooldown, error)
 }
 
-// Models returns the current runtime model snapshot.
+// Models returns the complete catalog and available channels for each model in the current runtime.
 func (admin *runtimeAdmin) Models(ctx context.Context) ([]aistudio.Model, error) {
-	return admin.service.modelSnapshot(), nil
+	return admin.service.catalogModels(), nil
 }
 
 func (admin *runtimeAdmin) Events(ctx context.Context) (<-chan api.AdminEvent, error) {
@@ -1111,6 +1114,17 @@ func (registry *requestRegistry) markRunning(id string, accountID string, accoun
 		registry.publishLocked(api.AdminEvent{Type: "request", Data: tracked.request})
 	}
 
+	registry.mu.Unlock()
+}
+
+// markChannel records the upstream channel attempted by the request
+func (registry *requestRegistry) markChannel(id string, channel string) {
+	registry.mu.Lock()
+	if tracked, exists := registry.active[id]; exists {
+		tracked.request.Channel = channel
+		registry.active[id] = tracked
+		registry.publishLocked(api.AdminEvent{Type: "request", Data: tracked.request})
+	}
 	registry.mu.Unlock()
 }
 
@@ -1489,8 +1503,10 @@ func runtimeConfigDTO(cfg config.Config) api.RuntimeConfig {
 		WarmStartupConcurrency: cfg.WarmStartupConcurrency,
 		PerAccountConcurrency:  cfg.PerAccountConcurrency,
 		RoutingStrategy:        cfg.RoutingStrategy,
+		UpstreamChannels:       cfg.UpstreamChannels,
 		TemporaryChat:          cfg.TemporaryChat,
 		Headless:               cfg.Headless,
+		WAABackend:             cfg.WAABackend,
 	}
 }
 

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -507,7 +508,9 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 		PerAccountConcurrency:  value.PerAccountConcurrency,
 		TemporaryChat:          value.TemporaryChat,
 		RoutingStrategy:        value.RoutingStrategy,
+		UpstreamChannels:       value.UpstreamChannels,
 		Headless:               value.Headless,
+		WAABackend:             value.WAABackend,
 	}
 
 	overrides.Apply(&saved)
@@ -522,7 +525,9 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 		saved.PerAccountConcurrency == active.PerAccountConcurrency &&
 		saved.TemporaryChat == active.TemporaryChat &&
 		saved.RoutingStrategy == active.RoutingStrategy &&
-		saved.Headless == active.Headless
+		slices.Equal(saved.UpstreamChannels, active.UpstreamChannels) &&
+		saved.Headless == active.Headless &&
+		saved.WAABackend == active.WAABackend
 }
 
 var _ aistudio.Service = (*runtimeManager)(nil)

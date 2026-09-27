@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useI18n } from '@/i18n'
+import { channelLabelKey, useI18n } from '@/i18n'
 import type { ServiceConfig } from '@/types'
 import UiIcon from './UiIcon.vue'
 
@@ -167,6 +167,38 @@ async function copyApiKey(): Promise<void> {
             >
               {{ config.temporary_chat ? t('settings.enabled') : t('settings.disabled') }}
             </span>
+          </div>
+
+          <!-- WAA Backend -->
+          <div class="flex items-center justify-between px-4 py-3">
+            <div>
+              <span class="text-sm text-gray-300">{{ t('settings.waaBackend') }}</span>
+              <p class="text-xs text-gray-500">{{ t('settings.waaBackendHelp') }}</p>
+            </div>
+            <span class="rounded bg-blue-500/20 px-2 py-0.5 text-xs font-medium text-blue-300">
+              {{
+                config.waa_backend === 'go'
+                  ? t('settings.waaBackendGo')
+                  : t('settings.waaBackendCamoufox')
+              }}
+            </span>
+          </div>
+
+          <!-- Upstream Channels -->
+          <div class="flex items-center justify-between px-4 py-3">
+            <div>
+              <span class="text-sm text-gray-300">{{ t('settings.upstreamChannels') }}</span>
+              <p class="text-xs text-gray-500">{{ t('settings.upstreamChannelsHelp') }}</p>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="channel in config.upstream_channels"
+                :key="channel"
+                class="rounded bg-purple-500/20 px-2 py-0.5 text-xs font-medium text-purple-300"
+              >
+                {{ t(channelLabelKey(channel)) }}
+              </span>
+            </div>
           </div>
 
           <!-- Workers stats -->
