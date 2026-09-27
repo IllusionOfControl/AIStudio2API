@@ -109,3 +109,60 @@ const (
 ```
 
 Each adapter in `internal/api/` translates these events into the protocol's expected format (e.g. OpenAI `chat.completion.chunk` SSE, Anthropic `content_block_delta` SSE, or Gemini streaming JSON).
+
+
+---
+
+## 7. Build Channel Wire Protocol
+
+The Build application upstream channel proxies standard Gemini API endpoints through MakerSuite:
+
+### RPC Methods
+- **`ProxyStreamedCall`**: Used for streaming generation. Request wire array format: `[path, bodyJSON, WAAProof]`.
+- **`ProxyUnaryCall`**: Used for unary calls and models requiring subscription tier entitlements. Wire array format: `[path, bodyJSON, WAAProof, "POST"]`.
+
+### Path & Payload
+- Path: `/v1beta/models/{model}:streamGenerateContent` or `/v1beta/models/{model}:generateContent`.
+- Payload: Clean, standard Gemini REST API JSON payload (`contents`, `generationConfig`, `tools`, `safetySettings`).
+- Attestation: The WAA proof binding string is formatted as `"{path} {bodyJSON}"`.
+
+### Response Decoding (`BuildStreamDecoder`)
+- Responses arrive as chunked JSON arrays containing raw Gemini API `GenerateContentResponse` messages in slot 0 or Base64-encoded protobuf in slot 2.
+- Decoder translates `candidates`, `groundingMetadata` (Web search, Google Maps widget tokens), and `citationSources` into canonical events.
+
+---
+
+## 8. Omni Interactions Protocol (`CreateInteractionStream`)
+
+Omni interaction models use Google's `CreateInteractionStream` RPC (`internal/aistudio/interaction.go`):
+
+### Request Wire Structure
+```go
+// Top-level envelope: [1, 1, null, interaction, null, 1]
+interaction[6]  = systemPrompt
+interaction[17] = [wireModelName, generationConfig] // slot 5: thinkingLevel, slot 7: maxOutputTokens
+interaction[26] = [inputSteps]                     // User turns (step field 1) & model turns (field 2)
+interaction[53] = [[[null, null, null, [null, null, null, null, null, 1]]]] // Video output config
+```
+
+### Content Delta Events
+- Delta slot 0: Incremental text chunks.
+- Delta slot 4: Generated video frames (`[mimeEnum, base64Data]`, where enum 1 = `video/mp4`).
+- Delta slot 5: Reasoning thoughts.
+- Delta slot 6/7: Thought signatures.
+
+---
+
+## 9. Speech & Realtime Capabilities
+
+### Multi-Speaker TTS (`SpeechConfig`)
+- Supports `speakers` array with per-speaker voice configurations (`SpeakerVoiceConfig`).
+- Narration modes (`Mode`):
+  - `VERBATIM` (wire enum `1`): Exact verbatim multi-character speech.
+  - `CONVERSATIONAL` (wire enum `2`): Conversational dialogue speech.
+- Legacy TTS models utilize `foldSpeechMetadata` to convert `SpeechMetadata` parts back into `"Speaker: Line"` dialogue text.
+
+### Live Session Setup Variants
+- **Conversation Variant**: Standard bidirectional audio/text Live session (`BidiModeLive`).
+- **Translation Variant (`speech_translation`)**: Setup field 31 carries `TranslationConfig` with target language code and echo settings. Output modality must be `audio`.
+- **Transcription Variant (`transcription_output`)**: Setup field 10 carries input transcription parameters (`LanguageCodes`). Output modality must be `text`.
