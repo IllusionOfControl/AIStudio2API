@@ -1507,6 +1507,7 @@ func runtimeConfigDTO(cfg config.Config) api.RuntimeConfig {
 		TemporaryChat:          cfg.TemporaryChat,
 		Headless:               cfg.Headless,
 		WAABackend:             cfg.WAABackend,
+		AutoStart:              cfg.AutoStart,
 	}
 }
 

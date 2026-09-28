@@ -184,6 +184,24 @@ async function copyApiKey(): Promise<void> {
             </span>
           </div>
 
+          <!-- WAA Auto-start -->
+          <div class="flex items-center justify-between px-4 py-3">
+            <div>
+              <span class="text-sm text-gray-300">{{ t('settings.autoStart') }}</span>
+              <p class="text-xs text-gray-500">{{ t('settings.autoStartDesc') }}</p>
+            </div>
+            <span
+              class="rounded px-2 py-0.5 text-xs font-medium"
+              :class="
+                config.auto_start
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-gray-500/20 text-gray-400'
+              "
+            >
+              {{ config.auto_start ? t('settings.enabled') : t('settings.disabled') }}
+            </span>
+          </div>
+
           <!-- Upstream Channels -->
           <div class="flex items-center justify-between px-4 py-3">
             <div>

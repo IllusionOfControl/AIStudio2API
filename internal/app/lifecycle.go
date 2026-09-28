@@ -45,6 +45,7 @@ func (generation *runtimeGeneration) Close() error {
 type dataConfigOverrides struct {
 	authStates *string
 	proxy      *string
+	autoStart  *bool
 }
 
 // Apply applies command-line overrides to the target configuration.
@@ -54,6 +55,9 @@ func (overrides dataConfigOverrides) Apply(cfg *config.Config) {
 	}
 	if overrides.proxy != nil {
 		cfg.Proxy = *overrides.proxy
+	}
+	if overrides.autoStart != nil {
+		cfg.AutoStart = *overrides.autoStart
 	}
 }
 
@@ -511,6 +515,7 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 		UpstreamChannels:       value.UpstreamChannels,
 		Headless:               value.Headless,
 		WAABackend:             value.WAABackend,
+		AutoStart:              value.AutoStart,
 	}
 
 	overrides.Apply(&saved)
@@ -527,7 +532,8 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 		saved.RoutingStrategy == active.RoutingStrategy &&
 		slices.Equal(saved.UpstreamChannels, active.UpstreamChannels) &&
 		saved.Headless == active.Headless &&
-		saved.WAABackend == active.WAABackend
+		saved.WAABackend == active.WAABackend &&
+		saved.AutoStart == active.AutoStart
 }
 
 var _ aistudio.Service = (*runtimeManager)(nil)
