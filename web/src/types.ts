@@ -158,6 +158,7 @@ export interface ServiceConfig {
   waa_backend: 'camoufox' | 'go'
   temporary_chat: boolean
   headless: boolean
+  auto_start: boolean
 }
 
 export type AdminEvent =

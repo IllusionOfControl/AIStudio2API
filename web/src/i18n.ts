@@ -152,6 +152,8 @@ const zhCN = {
   'logs.channel': '通道',
   'models.channels': '通道',
   'settings.temporaryChat': 'WAA 预热使用临时对话',
+  'settings.autoStart': 'WAA 自动启动',
+  'settings.autoStartDesc': '应用启动时自动启动 WAA 生成服务',
   'settings.activeValue': '当前生效',
   'settings.pendingService': '已保存值将在下次生成服务启动时生效',
   'settings.pendingManagement': '监听地址或 API 密钥需重新运行 start.bat 生效',
@@ -374,6 +376,8 @@ const en: Record<TranslationKey, string> = {
   'settings.temporaryChat': 'Use temporary chat for WAA prewarming',
   'settings.activeValue': 'Active',
   'settings.pendingService': 'Saved values apply the next time the generation service starts',
+  'settings.autoStart': 'WAA Auto-start',
+  'settings.autoStartDesc': 'Automatically start WAA generation service on application launch',
   'settings.pendingManagement': 'Restart with start.bat to apply the listen address or API key',
   'settings.saved': 'Configuration saved',
   'settings.savedService':

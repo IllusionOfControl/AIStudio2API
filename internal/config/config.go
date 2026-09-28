@@ -22,6 +22,7 @@ const (
 	defaultWarmConcurrency    = 2
 	defaultAccountConcurrency = 2
 	defaultHeadless           = true
+	defaultAutoStart          = false
 )
 
 var configKeys = [...]string{
@@ -41,6 +42,8 @@ var configKeys = [...]string{
 	"HEADLESS",
 	"CAMOUFOX_PATH",
 	"WAA_BACKEND",
+	"AUTO_START",
+	"WAA_AUTO_START",
 }
 
 // upstreamChannels represents the upstream channels available for generation requests
@@ -69,6 +72,7 @@ type Config struct {
 	TemporaryChat          bool          `json:"temporary_chat"`
 	Headless               bool          `json:"headless"`
 	WAABackend             string        `json:"waa_backend"`
+	AutoStart              bool          `json:"auto_start"`
 }
 
 // Default returns a default configuration ready for startup.
@@ -86,6 +90,7 @@ func Default() Config {
 		UpstreamChannels:       append([]string(nil), upstreamChannels...),
 		Headless:               defaultHeadless,
 		WAABackend:             WAABackendCamoufox,
+		AutoStart:              defaultAutoStart,
 	}
 }
 
@@ -177,6 +182,17 @@ func Load(path string) (Config, error) {
 	}
 	if value, ok := values["WAA_BACKEND"]; ok {
 		cfg.WAABackend = strings.ToLower(strings.TrimSpace(value))
+	}
+	if value, ok := values["AUTO_START"]; ok {
+		cfg.AutoStart, err = strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return Config{}, fmt.Errorf("AUTO_START must be true or false")
+		}
+	} else if value, ok := values["WAA_AUTO_START"]; ok {
+		cfg.AutoStart, err = strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return Config{}, fmt.Errorf("WAA_AUTO_START must be true or false")
+		}
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err

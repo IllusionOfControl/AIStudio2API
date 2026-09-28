@@ -193,6 +193,7 @@ type RuntimeConfig struct {
 	TemporaryChat             bool     `json:"temporary_chat"`
 	Headless                  bool     `json:"headless"`
 	WAABackend                string   `json:"waa_backend"`
+	AutoStart                 bool     `json:"auto_start"`
 }
 
 // AdminCooldown represents account model cooldown.

@@ -84,6 +84,7 @@ func parseFlags(args []string, cfg *config.Config) (commandOptions, error) {
 	listenAddr := flags.String("listen", cfg.ListenAddr, "Server listen address")
 	proxy := flags.String("proxy", cfg.Proxy, "HTTP, HTTPS, or SOCKS5 proxy for this run")
 	openUI := flags.Bool("open-ui", len(args) == 0, "Open web UI after launch")
+	autoStart := flags.Bool("auto-start", cfg.AutoStart, "Automatically start WAA generation service on launch")
 
 	if err := flags.Parse(args); err != nil {
 		return commandOptions{}, err
@@ -95,6 +96,7 @@ func parseFlags(args []string, cfg *config.Config) (commandOptions, error) {
 	cfg.AuthStates = strings.TrimSpace(*authStates)
 	cfg.ListenAddr = strings.TrimSpace(*listenAddr)
 	cfg.Proxy = strings.TrimSpace(*proxy)
+	cfg.AutoStart = *autoStart
 	if err := cfg.Validate(); err != nil {
 		return commandOptions{}, err
 	}
@@ -108,6 +110,9 @@ func parseFlags(args []string, cfg *config.Config) (commandOptions, error) {
 		case "proxy":
 			override := cfg.Proxy
 			options.overrides.proxy = &override
+		case "auto-start":
+			override := cfg.AutoStart
+			options.overrides.autoStart = &override
 		}
 	})
 
@@ -137,6 +142,15 @@ func runServer(ctx context.Context, cfg config.Config, options commandOptions, m
 
 	address := browserAddress(listener.Addr().String())
 	manager.requests.log("service", "INFO", "Admin service ready | address=http://"+address)
+
+	if cfg.AutoStart {
+		manager.requests.log("service", "INFO", "Auto-starting WAA generation service")
+		go func() {
+			if _, err := manager.StartService(ctx); err != nil {
+				manager.requests.log("service", "ERROR", fmt.Sprintf("Auto-start failed | error=%s", strings.TrimSpace(err.Error())))
+			}
+		}()
+	}
 
 	if options.openUI {
 		if err := openBrowser("http://" + address); err != nil {
