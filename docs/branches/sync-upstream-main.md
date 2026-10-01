@@ -1,8 +1,8 @@
 ---
 branch: sync/upstream-main
-last_commit: af8cc22
+last_commit: a02d32a
 status: complete
-last_activity: 27-09-2026
+last_activity: 01-10-2026
 ---
 
 ## Task
@@ -53,3 +53,22 @@ This sync integrates all these changes, resolves 24 conflicted files, and transl
 - Frontend builds and passes all checks (`npm run typecheck`, `npm run lint`, `npm run format:check`).
 - Zero Chinese characters in source code files.
 - Application binary builds and runs cleanly (`go build ./cmd/aistudio2api`).
+
+---
+
+### Update: Upstream v0.2.2 Synchronization (2026-10-01)
+
+**Task**: Synchronize `sync/upstream-main` with upstream commits up to `e89ba29` (release v0.2.2), resolve merge conflicts preserving read-only configuration, translate all newly introduced Chinese text to English, and merge into `dev`.
+
+**Upstream Additions**:
+1. **Interactions API**: Public `/v1/interactions` and `/v1beta/interactions` endpoints for Gemini 3.8 / Omni Interactions, structured output schema serialization, multi-turn stateless step tracking, and Gemini 3.8 TTS single/multi-speaker support.
+2. **Build Native Non-Streaming Unary Calls**: `ProxyUnaryCall` support for non-streaming requests (`BUILD_NATIVE_NONSTREAM=true`) routed to Build with fallback to streaming.
+3. **Thought Signature Normalization**: Normalized `thoughtSignature` attachment directly to content parts, merged adjacent thought/text fragments in Gemini output to eliminate extra newlines in SillyTavern.
+4. **Admin Authentication**: Web UI login, rate limiting, SameSite session cookies, and loopback authentication separation.
+
+**Resolution & Adaptations**:
+- Preserved immutable configuration invariant (no `PUT /api/config` or runtime `.env` mutations).
+- SettingsPanel retains read-only status displays for Admin Auth and Build Native Nonstream.
+- Translated 24 files with 72 Chinese comment/log lines into concise technical English.
+- Adapted `internal/app/admin_config_test.go` to test read-only config loading and restart flag detection.
+- Merged into `dev` (`a02d32a`). All tests (`go test ./...`) and lint checks pass cleanly.
