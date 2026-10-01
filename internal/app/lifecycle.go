@@ -436,6 +436,7 @@ func (manager *runtimeManager) RuntimeConfig(ctx context.Context) (api.RuntimeCo
 
 
 
+
 // Cooldowns returns the cooldown states for the current generation service.
 func (manager *runtimeManager) Cooldowns(ctx context.Context) ([]api.AdminCooldown, error) {
 	manager.mu.RLock()
@@ -484,6 +485,10 @@ func (manager *runtimeManager) decorateRuntimeConfig(value api.RuntimeConfig, ac
 	value.ActiveListenAddr = manager.activeManagement.ListenAddr
 	value.ActiveAPIKey = manager.activeManagement.ProxyAPIKey
 	value.ManagementRestartRequired = value.ListenAddr != value.ActiveListenAddr || value.APIKey != value.ActiveAPIKey
+	value.ManagementRestartRequired = value.ManagementRestartRequired ||
+		value.AdminAuthEnabled != manager.activeManagement.AdminAuthEnabled ||
+		value.AdminUsername != manager.activeManagement.AdminUsername ||
+		value.SavedAdminPassword != manager.activeManagement.AdminPassword
 	value.ServiceRestartRequired = !sameDataConfig(value, active, manager.overrides)
 
 	return value
@@ -511,6 +516,7 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 		UpstreamChannels:       value.UpstreamChannels,
 		Headless:               value.Headless,
 		WAABackend:             value.WAABackend,
+		BuildNativeNonstream:   value.BuildNativeNonstream,
 	}
 
 	overrides.Apply(&saved)
@@ -527,7 +533,8 @@ func sameDataConfig(value api.RuntimeConfig, active config.Config, overrides dat
 		saved.RoutingStrategy == active.RoutingStrategy &&
 		slices.Equal(saved.UpstreamChannels, active.UpstreamChannels) &&
 		saved.Headless == active.Headless &&
-		saved.WAABackend == active.WAABackend
+		saved.WAABackend == active.WAABackend &&
+		saved.BuildNativeNonstream == active.BuildNativeNonstream
 }
 
 var _ aistudio.Service = (*runtimeManager)(nil)

@@ -338,9 +338,7 @@ func encodeBuildTools(tools Tools) ([]any, bool, error) {
 
 // encodeBuildGenerationConfig reuses Playground parameter validation and defaults, converting to Gemini API fields
 func encodeBuildGenerationConfig(config GenerationConfig, defaults GenerationDefaults) (map[string]any, error) {
-	validationConfig := config
-	validationConfig.ResponseSchema = nil
-	wire, err := encodeGenerationConfig(validationConfig, defaults)
+	wire, err := encodeGenerationConfig(config, defaults)
 	if err != nil {
 		return nil, err
 	}
@@ -360,8 +358,8 @@ func encodeBuildGenerationConfig(config GenerationConfig, defaults GenerationDef
 	if config.ResponseMIMEType != "" {
 		encoded["responseMimeType"] = config.ResponseMIMEType
 	}
-	if len(bytes.TrimSpace(config.ResponseSchema)) > 0 {
-		encoded["responseJsonSchema"] = json.RawMessage(config.ResponseSchema)
+	if wire[8] != nil {
+		encoded["responseSchema"] = buildResponseSchema(wire[8].([]any))
 	}
 	if config.ResponseModalities != nil {
 		modalities := make([]string, 0, len(config.ResponseModalities))
@@ -781,7 +779,22 @@ func buildTrailerError(raw json.RawMessage) error {
 
 // sendBuild encodes and sends Build proxy request, returning response and stream decoder with finishReason check
 func (c *Client) sendBuild(ctx context.Context, request GenerateRequest, entry modelEntry) (*RPCResponse, func(io.Reader, func(Event) error) error, error) {
-	unary := buildUsesUnary(entry.model)
+	unary := request.Unary || buildUsesUnary(entry.model)
+	response, decoder, err := c.sendBuildMode(ctx, request, entry, unary, "")
+	var rpcErr *RPCError
+	if err != nil && request.Unary && !buildUsesUnary(entry.model) && ctx.Err() == nil && errors.As(err, &rpcErr) {
+		message := strings.ToLower(rpcErr.Message)
+		unsupported := rpcErr.StatusCode == http.StatusMethodNotAllowed || rpcErr.StatusCode == http.StatusNotImplemented ||
+			rpcErr.Code == 12 || rpcErr.StatusCode == http.StatusBadRequest && strings.Contains(message, "support") && (strings.Contains(message, "stream") || strings.Contains(message, "unary"))
+		if unsupported {
+			return c.sendBuildMode(ctx, request, entry, false, "Build 原生单次调用不可用: "+rpcErr.Error())
+		}
+	}
+	return response, decoder, err
+}
+
+// sendBuildMode 按选定模式发送 Build 请求
+func (c *Client) sendBuildMode(ctx context.Context, request GenerateRequest, entry modelEntry, unary bool, reason string) (*RPCResponse, func(io.Reader, func(Event) error) error, error) {
 	path, body, err := EncodeBuildGenerateRequest(request, entry.defaults, request.ImageRoute, unary)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: %v", ErrInvalidArgument, err)
@@ -794,6 +807,11 @@ func (c *Client) sendBuild(ctx context.Context, request GenerateRequest, entry m
 	if unary {
 		method = buildProxyUnaryMethod
 	}
+	mode := "stream"
+	if unary {
+		mode = "native"
+	}
+	reportUpstreamMode(ctx, method, mode, reason)
 	rpc := newRPCRequest(method, request.AccountID, request.ID, proxy, !unary)
 	c.applyBenefitTier(rpc.Method, request.AccountID, rpc.Header)
 	response, err := c.protected.DoProtected(ctx, request, rpc)

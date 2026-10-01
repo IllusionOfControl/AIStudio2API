@@ -1490,6 +1490,11 @@ func buildVersion() string {
 
 func runtimeConfigDTO(cfg config.Config) api.RuntimeConfig {
 	return api.RuntimeConfig{
+		AdminAuthEnabled:       cfg.AdminAuthEnabled,
+		AdminUsername:          cfg.AdminUsername,
+		AdminPasswordSet:       cfg.AdminPassword != "",
+		SavedAdminPassword:     cfg.AdminPassword,
+		BuildNativeNonstream:   cfg.BuildNativeNonstream,
 		AuthStates:             cfg.AuthStates,
 		ListenAddr:             cfg.ListenAddr,
 		APIKey:                 cfg.ProxyAPIKey,

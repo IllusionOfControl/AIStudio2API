@@ -11,8 +11,11 @@ import (
 
 // Config defines public API server configuration.
 type Config struct {
-	APIKey string
-	Admin  AdminService
+	APIKey           string
+	Admin            AdminService
+	AdminAuthEnabled bool
+	AdminUsername    string
+	AdminPassword    string
 }
 
 type server struct {
@@ -31,6 +34,8 @@ func NewHandler(service aistudio.Service, config Config) http.Handler {
 	public.HandleFunc("GET /v1/models", s.handleOpenAIModels)
 	public.HandleFunc("POST /v1/chat/completions", s.handleChatCompletions)
 	public.HandleFunc("POST /v1/responses", s.handleResponses)
+	public.HandleFunc("POST /v1/interactions", s.handleInteraction)
+	public.HandleFunc("POST /v1beta/interactions", s.handleInteraction)
 	public.HandleFunc("POST /v1/files", s.handleOpenAIFileUpload)
 	public.HandleFunc("GET /v1/files/{file}", s.handleOpenAIFileGet)
 	public.HandleFunc("GET /v1/files/{file}/content", s.handleOpenAIFileContent)
@@ -62,7 +67,7 @@ func NewHandler(service aistudio.Service, config Config) http.Handler {
 	publicHandler := bodyLimitMiddleware(browserOriginMiddleware(config.APIKey, authMiddleware(config.APIKey, public)))
 	root.Handle("/v1/", requestLoggingMiddleware(config.Admin, corsMiddleware(publicHandler)))
 	root.Handle("/v1beta/", requestLoggingMiddleware(config.Admin, corsMiddleware(publicHandler)))
-	root.Handle("/api/", loopbackMiddleware(sameOriginMiddleware(control)))
+	root.Handle("/api/", newAdminAuth(config).handler(control))
 	return root
 }
 
