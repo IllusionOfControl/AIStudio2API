@@ -148,6 +148,9 @@ Camoufox 由 Go 通过 WebDriver BiDi 直接管理。启动数据面时，服务
 | `AISTUDIO_AUTH_STATES` | 账户文件、目录或逗号分隔的多个路径 | `auth` |
 | `LISTEN_ADDR` | HTTP 服务监听地址 | `127.0.0.1:2048` |
 | `PROXY_API_KEY` | 公开 API 访问密钥 | 空 |
+| `ADMIN_AUTH_ENABLED` | 管理员账号密码登录开关 | `false` |
+| `ADMIN_USERNAME` | 管理员账号 | `admin` |
+| `ADMIN_PASSWORD` | 管理员密码，开启登录时必填 | 空 |
 | `PROXY` | setup 与未设置账户代理时使用的固定出口 | 空 |
 | `INIT_TIMEOUT` | 单账户初始化超时 | `2m` |
 | `REQUEST_TIMEOUT` | 单次请求最大执行时间 | `5m` |
@@ -157,6 +160,7 @@ Camoufox 由 Go 通过 WebDriver BiDi 直接管理。启动数据面时，服务
 | `PER_ACCOUNT_CONCURRENCY` | 单账号同时执行的请求数 | `2` |
 | `ROUTING_STRATEGY` | 账户轮询 `round-robin` 或粘性优先 `fill-first` | `round-robin` |
 | `UPSTREAM_CHANNELS` | 生成请求的上游通道 `playground`、`build`，逗号分隔 | `playground,build` |
+| `BUILD_NATIVE_NONSTREAM` | 非流式请求优先选择 Build 原生单次调用 | `true` |
 | `WAA_BACKEND` | WAA 后端 `camoufox` 或 `go` | `camoufox` |
 | `TEMPORARY_CHAT` | WAA 预热页是否使用临时对话 | `false` |
 | `HEADLESS` | Camoufox 是否启用无头模式（`true` 后台静默运行；`false` 弹出浏览器窗口） | `true` |
@@ -168,10 +172,19 @@ Camoufox 由 Go 通过 WebDriver BiDi 直接管理。启动数据面时，服务
 
 | 字段 | 语义 |
 | --- | --- |
-| `auth_states`、`proxy`、`init_timeout`、`request_timeout` | 当前生成服务实例使用的基础配置 |
-| `warm_worker_limit`、`max_active_workers`、`warm_startup_concurrency`、`per_account_concurrency` | 当前使用的容量与并发参数 |
-| `temporary_chat`、`headless`、`waa_backend`、`upstream_channels` | WAA 预热临时对话、无头运行模式、WAA 后端与上游通道配置 |
-| `listen_addr`、`proxy_api_key` | 管理监听配置与 API 密钥 |
+| `auth_states`、`proxy`、`init_timeout`、`request_timeout` | 下一次启动生成服务时使用的保存值 |
+| `warm_worker_limit`、`max_active_workers`、`warm_startup_concurrency`、`per_account_concurrency` | 下一次启动生成服务时使用的容量参数 |
+| `temporary_chat`、`waa_backend`、`upstream_channels`、`build_native_nonstream` | 下一次启动生成服务时使用的 WAA 与上游通道配置 |
+| `admin_auth_enabled`、`admin_username`、`admin_password` | 保存的管理登录配置；省略密码保留现值，密码只接受写入 |
+| `admin_password_set` | 是否已配置管理密码 |
+| `listen_addr`、`proxy_api_key` | 保存的管理监听配置 |
+| `active_listen_addr`、`active_proxy_api_key` | 当前管理进程固定使用的值 |
+| `management_restart_required` | 保存的监听地址、API key 或管理登录配置与当前管理进程不同 |
+| `service_restart_required` | 保存的生成服务配置与当前生成服务实例不同 |
+
+配置保存使用临时文件、`Sync` 和原子替换。监听地址、本地 API key 和管理登录配置由管理进程持有，进程重启后应用；其余配置在停止并再次启动生成服务后应用。
+
+管理登录开启后，`/api` 使用独立的 HttpOnly、SameSite=Strict 会话 Cookie，登录有效期为 12 小时。退出登录撤销会话并结束它的管理 SSE 订阅。登录关闭时，管理 API 使用回环来源与回环 Host 校验。远程管理通过 HTTPS 反向代理，代理保留 `Host` 并设置 `X-Forwarded-Proto: https`。生成 API 的访问密钥独立配置。
 
 服务启动时从环境变量与 `.env` 文件加载配置并在运行期保持只读。Web 管理界面仅作为只读配置查看器使用。
 生成服务启动顺序如下。源码中的 `generation` 表示一次 Stop/Start 创建的生成服务实例：
@@ -257,6 +270,7 @@ Worker 容量由热池目标、活动上限和单账户并发共同约束。活�
 | --- | --- |
 | OpenAI Chat | `GET /v1/models`、`POST /v1/chat/completions` |
 | OpenAI Responses | `POST /v1/responses` |
+| Gemini Interactions | `POST /v1beta/interactions`、`POST /v1/interactions` |
 | OpenAI Files | `POST /v1/files`、`GET/DELETE /v1/files/{file}`、`GET /v1/files/{file}/content` |
 | OpenAI 媒体 | `POST /v1/images/generations`、`POST /v1/audio/speech`、`POST /v1/videos`、`GET /v1/videos/{id}`、`GET /v1/videos/{id}/content` |
 | OpenAI Transcribe | `POST /v1/audio/transcriptions` |
@@ -278,7 +292,7 @@ Worker 容量由热池目标、活动上限和单账户并发共同约束。活�
 
 `/api` 接受 loopback 请求，并在请求带 `Origin` 时执行 same-origin 校验。`/v1` 与 `/v1beta` 使用公开 API key 与 CORS。
 
-OpenAI Responses 的 `previous_response_id` 在当前进程内保存最多 256 个响应节点，用于重建下一轮完整 contents；进程重启后客户端应重新提交完整上下文。Drive 文件、Veo operation 和产物文件的账户绑定写入 `runtime-state.json`，重启后仍可轮询和下载。
+OpenAI Responses 的 `previous_response_id` 与 Gemini Interactions 的 `previous_interaction_id` 共用当前服务实例内最多 256 个响应节点，用于重建下一轮完整 contents；服务重启后客户端应重新提交完整上下文。Drive 文件、Veo operation 和产物文件的账户绑定写入 `runtime-state.json`，重启后仍可轮询和下载。
 
 新增上游能力从 `internal/aistudio` 开始：编码真实数组槽位、解码服务器事件，再由 `internal/api` 投影到公开协议。模型方法、上下文、输出上限、工具、声音、图片规格和视频规格均来自实时 `ListModels`。
 

@@ -44,6 +44,10 @@ var configKeys = [...]string{
 	"WAA_BACKEND",
 	"AUTO_START",
 	"WAA_AUTO_START",
+	"ADMIN_AUTH_ENABLED",
+	"ADMIN_USERNAME",
+	"ADMIN_PASSWORD",
+	"BUILD_NATIVE_NONSTREAM",
 }
 
 // upstreamChannels represents the upstream channels available for generation requests
@@ -57,6 +61,10 @@ const WAABackendGo = "go"
 
 // Config holds the global configuration for the service.
 type Config struct {
+	AdminAuthEnabled       bool          `json:"admin_auth_enabled"`
+	AdminUsername          string        `json:"admin_username"`
+	AdminPassword          string        `json:"-"`
+	BuildNativeNonstream   bool          `json:"build_native_nonstream"`
 	AuthStates             string        `json:"auth_states"`
 	ListenAddr             string        `json:"listen_addr"`
 	ProxyAPIKey            string        `json:"proxy_api_key"`
@@ -78,6 +86,8 @@ type Config struct {
 // Default returns a default configuration ready for startup.
 func Default() Config {
 	return Config{
+		AdminUsername:          "admin",
+		BuildNativeNonstream:   true,
 		AuthStates:             defaultAuthStates,
 		ListenAddr:             defaultListenAddr,
 		InitTimeout:            defaultInitTimeout,
@@ -108,7 +118,24 @@ func Load(path string) (Config, error) {
 	}
 
 	cfg := Default()
-
+	if value, ok := values["ADMIN_AUTH_ENABLED"]; ok {
+		cfg.AdminAuthEnabled, err = strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return Config{}, fmt.Errorf("ADMIN_AUTH_ENABLED must be true or false")
+		}
+	}
+	if value, ok := values["ADMIN_USERNAME"]; ok {
+		cfg.AdminUsername = strings.TrimSpace(value)
+	}
+	if value, ok := values["ADMIN_PASSWORD"]; ok {
+		cfg.AdminPassword = value
+	}
+	if value, ok := values["BUILD_NATIVE_NONSTREAM"]; ok {
+		cfg.BuildNativeNonstream, err = strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return Config{}, fmt.Errorf("BUILD_NATIVE_NONSTREAM must be true or false")
+		}
+	}
 	if value, ok := values["AISTUDIO_AUTH_STATES"]; ok {
 		cfg.AuthStates = strings.TrimSpace(value)
 	}
@@ -204,8 +231,12 @@ func Load(path string) (Config, error) {
 
 
 
+
 // Validate checks if the configuration values are valid for service startup.
 func (c Config) Validate() error {
+	if c.AdminAuthEnabled && (strings.TrimSpace(c.AdminUsername) == "" || strings.TrimSpace(c.AdminPassword) == "") {
+		return fmt.Errorf("ADMIN_USERNAME and ADMIN_PASSWORD are required when admin auth is enabled")
+	}
 	if strings.TrimSpace(c.AuthStates) == "" {
 		return fmt.Errorf("AISTUDIO_AUTH_STATES cannot be empty")
 	}
@@ -290,6 +321,9 @@ func validateUpstreamChannels(channels []string) error {
 // MarshalJSON outputs durations in string format matching env conventions.
 func (c Config) MarshalJSON() ([]byte, error) {
 	type payload struct {
+		AdminAuthEnabled       bool     `json:"admin_auth_enabled"`
+		AdminUsername          string   `json:"admin_username"`
+		BuildNativeNonstream   bool     `json:"build_native_nonstream"`
 		AuthStates             string   `json:"auth_states"`
 		ListenAddr             string   `json:"listen_addr"`
 		ProxyAPIKey            string   `json:"proxy_api_key"`
@@ -308,6 +342,9 @@ func (c Config) MarshalJSON() ([]byte, error) {
 	}
 
 	return json.Marshal(payload{
+		AdminAuthEnabled:       c.AdminAuthEnabled,
+		AdminUsername:          c.AdminUsername,
+		BuildNativeNonstream:   c.BuildNativeNonstream,
 		AuthStates:             c.AuthStates,
 		ListenAddr:             c.ListenAddr,
 		ProxyAPIKey:            c.ProxyAPIKey,
@@ -329,6 +366,10 @@ func (c Config) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON parses configuration from textual durations used in admin endpoints.
 func (c *Config) UnmarshalJSON(data []byte) error {
 	type payload struct {
+		AdminAuthEnabled       bool     `json:"admin_auth_enabled"`
+		AdminUsername          string   `json:"admin_username"`
+		AdminPassword          string   `json:"admin_password"`
+		BuildNativeNonstream   bool     `json:"build_native_nonstream"`
 		AuthStates             string   `json:"auth_states"`
 		ListenAddr             string   `json:"listen_addr"`
 		ProxyAPIKey            string   `json:"proxy_api_key"`
@@ -362,6 +403,10 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	}
 
 	parsed := Config{
+		AdminAuthEnabled:       value.AdminAuthEnabled,
+		AdminUsername:          strings.TrimSpace(value.AdminUsername),
+		AdminPassword:          value.AdminPassword,
+		BuildNativeNonstream:   value.BuildNativeNonstream,
 		AuthStates:             strings.TrimSpace(value.AuthStates),
 		ListenAddr:             strings.TrimSpace(value.ListenAddr),
 		ProxyAPIKey:            strings.TrimSpace(value.ProxyAPIKey),

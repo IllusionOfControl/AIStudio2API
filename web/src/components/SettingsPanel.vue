@@ -55,6 +55,28 @@ async function copyApiKey(): Promise<void> {
         <span class="leading-relaxed">{{ t('settings.readOnlyNotice') }}</span>
       </div>
 
+      <!-- Admin Authentication -->
+      <div>
+        <h3 class="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
+          {{ t('settings.adminAuth') }}
+        </h3>
+        <div class="divide-y divide-[#30363d] rounded-lg border border-[#30363d] bg-[#161b22]">
+          <div class="flex items-center justify-between px-4 py-3">
+            <span class="text-sm text-gray-300">{{ t('settings.adminAuth') }}</span>
+            <span
+              :class="config.admin_auth_enabled ? 'text-emerald-400' : 'text-gray-400'"
+              class="text-xs font-medium"
+            >
+              {{ config.admin_auth_enabled ? t('settings.enabled') : t('settings.disabled') }}
+            </span>
+          </div>
+          <div v-if="config.admin_auth_enabled" class="flex items-center justify-between px-4 py-3">
+            <span class="text-sm text-gray-300">{{ t('auth.username') }}</span>
+            <code class="text-sm font-mono text-white">{{ config.admin_username }}</code>
+          </div>
+        </div>
+      </div>
+
       <!-- General & Network -->
       <div>
         <h3 class="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-400">
@@ -217,6 +239,21 @@ async function copyApiKey(): Promise<void> {
                 {{ t(channelLabelKey(channel)) }}
               </span>
             </div>
+          </div>
+
+          <!-- Build Native Nonstream -->
+          <div class="flex items-center justify-between px-4 py-3">
+            <span class="text-sm text-gray-300">{{ t('settings.buildNative') }}</span>
+            <span
+              class="rounded px-2 py-0.5 text-xs font-medium"
+              :class="
+                config.build_native_nonstream
+                  ? 'bg-emerald-500/20 text-emerald-300'
+                  : 'bg-gray-500/20 text-gray-400'
+              "
+            >
+              {{ config.build_native_nonstream ? t('settings.enabled') : t('settings.disabled') }}
+            </span>
           </div>
 
           <!-- Workers stats -->

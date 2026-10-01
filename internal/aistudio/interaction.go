@@ -141,6 +141,11 @@ func interactionThinkingLevel(config GenerationConfig, defaults GenerationDefaul
 
 // generateInteraction generates via CreateInteractionStream and maps to canonical events
 func (c *Client) generateInteraction(ctx context.Context, request GenerateRequest, entry modelEntry) (<-chan Event, error) {
+	reason := ""
+	if request.Unary {
+		reason = "model uses CreateInteractionStream; returns after collecting chunks"
+	}
+	reportUpstreamMode(ctx, "CreateInteractionStream", "stream", reason)
 	body, binding, err := EncodeCreateInteractionStreamRequest(request, entry.defaults)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidArgument, err)

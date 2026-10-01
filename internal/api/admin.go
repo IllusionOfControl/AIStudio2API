@@ -174,6 +174,12 @@ type ChromeImportInput struct {
 
 // RuntimeConfig represents global runtime configuration.
 type RuntimeConfig struct {
+	AdminAuthEnabled          bool     `json:"admin_auth_enabled"`
+	AdminUsername             string   `json:"admin_username"`
+	AdminPassword             *string  `json:"admin_password,omitempty"`
+	AdminPasswordSet          bool     `json:"admin_password_set"`
+	SavedAdminPassword        string   `json:"-"`
+	BuildNativeNonstream      bool     `json:"build_native_nonstream"`
 	AuthStates                string   `json:"auth_states"`
 	ListenAddr                string   `json:"listen_addr"`
 	APIKey                    string   `json:"proxy_api_key"`

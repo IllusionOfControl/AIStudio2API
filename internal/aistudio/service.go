@@ -17,6 +17,8 @@ import (
 type PooledService struct {
 	pool   *AccountPool
 	client *Client
+	// BuildNativeNonstream prioritizes eligible Build channels for non-streaming requests.
+	BuildNativeNonstream bool
 }
 
 // PoolRequestContextProvider reads protocol context from a leased account
@@ -550,11 +552,16 @@ func (s *PooledService) Generate(ctx context.Context, request GenerateRequest) (
 	if err != nil {
 		return nil, err
 	}
+	var channel Channel
+	if request.Unary && s.BuildNativeNonstream {
+		channel = ChannelBuild
+	}
 	selection := AccountSelection{
 		ModelID:    modelID,
 		Method:     "generateContent",
 		AccountID:  strings.TrimSpace(request.AccountID),
 		ResourceID: resourceID,
+		Channel:    channel,
 	}
 	pinned := selection.AccountID != "" || selection.ResourceID != ""
 	if _, ok := AccountLeaseFromContext(ctx); ok {
@@ -563,6 +570,13 @@ func (s *PooledService) Generate(ctx context.Context, request GenerateRequest) (
 	var requestErr error
 	for attempt := 0; attempt < accountAttemptLimit(s.pool, pinned); attempt++ {
 		lease, owned, err := resolveAccountLease(ctx, s.pool, selection)
+		if err != nil && selection.Channel == ChannelBuild && ctx.Err() == nil {
+			var cooling *AllCoolingError
+			if errors.Is(err, ErrNoEligibleAccount) || errors.As(err, &cooling) {
+				selection.Channel = ""
+				lease, owned, err = resolveAccountLease(ctx, s.pool, selection)
+			}
+		}
 		if err != nil {
 			if requestErr != nil && errors.Is(err, ErrNoEligibleAccount) {
 				return nil, requestErr

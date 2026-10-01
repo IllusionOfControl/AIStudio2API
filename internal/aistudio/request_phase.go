@@ -16,6 +16,20 @@ const (
 
 type requestPhaseContextKey struct{}
 
+type upstreamModeContextKey struct{}
+
+// ContextWithUpstreamModeObserver records actual RPC, transport mode, and streaming fallback reason.
+func ContextWithUpstreamModeObserver(ctx context.Context, observer func(string, string, string)) context.Context {
+	return context.WithValue(ctx, upstreamModeContextKey{}, observer)
+}
+
+// reportUpstreamMode reports the upstream call mode actually used before dispatching.
+func reportUpstreamMode(ctx context.Context, method, mode, reason string) {
+	if observer, ok := ctx.Value(upstreamModeContextKey{}).(func(string, string, string)); ok {
+		observer(method, mode, reason)
+	}
+}
+
 // ContextWithRequestPhaseObserver records the protected request phase
 func ContextWithRequestPhaseObserver(ctx context.Context, observer func(RequestPhase)) context.Context {
 	return context.WithValue(ctx, requestPhaseContextKey{}, observer)

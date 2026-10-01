@@ -716,6 +716,11 @@ func (c *Client) Generate(ctx context.Context, request GenerateRequest) (<-chan 
 
 // sendPlayground encodes and sends Playground GenerateContent, returning response and stream decoder with frame completion check
 func (c *Client) sendPlayground(ctx context.Context, request GenerateRequest, entry modelEntry) (*RPCResponse, func(io.Reader, func(Event) error) error, error) {
+	reason := ""
+	if request.Unary {
+		reason = "Playground GenerateContent uses server-sent stream; returns after collecting chunks"
+	}
+	reportUpstreamMode(ctx, "GenerateContent", "stream", reason)
 	runtime := RequestContext{}
 	if c.contextProvider != nil {
 		var err error

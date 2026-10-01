@@ -1074,10 +1074,15 @@ server content 的 index `0/1/2/4/5/6` 分别为 model content、turn complete�
 
 动态路由的注册形状为 `GET /v1/files/{file}`、`GET /v1/files/{file}/content`、`DELETE /v1/files/{file}`、`GET /v1/videos/{video}`、`GET /v1/videos/{video}/content`、`POST /v1beta/models/{action}` 与 `GET /v1beta/operations/{operation}`；端点表中的 `{id}` 表示对应资源标识。
 
-公开 `/v1` 与 `/v1beta` 接受 `Authorization: Bearer`、`X-API-Key`、`X-Goog-API-Key` 或 `?key=`，读取优先级为 `?key=`、`X-Goog-API-Key`、`X-API-Key`、`Authorization: Bearer`；配置为空时关闭本地 API key 校验，此时 `Origin` 为 `null` 或非 localhost、非回环地址的 http/https 页面请求返回 401，不带 `Origin` 的客户端与其他 scheme 不受限制。`/v1*` 响应允许任意 origin，允许 `GET/POST/PUT/DELETE/OPTIONS` 与 `Authorization`、`Content-Type`、`X-API-Key`、`X-Goog-API-Key`、`Anthropic-Version`、`Anthropic-Beta` headers。`/v1*` 请求体上限约为 684 MiB，可容纳 Base64 编码的 512 MiB 文件。`/api` 控制面要求来源地址为 loopback 且 `Host` 为 localhost 或回环地址，携带 Origin 时执行 same-origin 校验。全部响应携带 `X-Frame-Options: DENY`、`Content-Security-Policy: frame-ancestors 'none'`、`X-Content-Type-Options: nosniff` 与 `Referrer-Policy: no-referrer`。`GET /health` 返回 `{"status":"ok"}`。
+公开 `/v1` 与 `/v1beta` 接受 `Authorization: Bearer`、`X-API-Key`、`X-Goog-API-Key` 或 `?key=`，读取优先级为 `?key=`、`X-Goog-API-Key`、`X-API-Key`、`Authorization: Bearer`；配置为空时关闭本地 API key 校验，此时 `Origin` 为 `null` 或非 localhost、非回环地址的 http/https 页面请求返回 401，不带 `Origin` 的客户端与其他 scheme 不受限制。`/v1*` 响应允许任意 origin，允许 `GET/POST/PUT/DELETE/OPTIONS` 与 `Authorization`、`Content-Type`、`X-API-Key`、`X-Goog-API-Key`、`Anthropic-Version`、`Anthropic-Beta` headers。`/v1*` 请求体上限约为 684 MiB，可容纳 Base64 编码的 512 MiB 文件。
+
+`/api` 控制面在 `ADMIN_AUTH_ENABLED=false` 时要求来源地址为 loopback 且 `Host` 为 localhost 或回环地址；开启登录后，通过管理员账号和密码签发的 Cookie 会话访问。管理请求执行 same-origin 校验并携带 `Cache-Control: no-store`。全部响应携带 `X-Frame-Options: DENY`、`Content-Security-Policy: frame-ancestors 'none'`、`X-Content-Type-Options: nosniff` 与 `Referrer-Policy: no-referrer`。`GET /health` 返回 `{"status":"ok"}`。
+
+`POST /api/auth/login` 接受 `{"username":"<ADMIN_USERNAME>","password":"<ADMIN_PASSWORD>"}`，成功返回 `{"enabled":true,"authenticated":true,"username":"<ADMIN_USERNAME>"}`。会话 Cookie 为 `aistudio_admin`，Path 为 `/api`，使用 HttpOnly、SameSite=Strict；HTTPS 或代理设置 `X-Forwarded-Proto: https` 时附带 Secure，有效期 12 小时。`GET /api/auth/session` 返回相同的状态结构，未登录时账号为空。`POST /api/auth/logout` 返回 204，撤销当前会话并取消关联管理请求。登录失败返回 401，同一来源一分钟内连续失败 5 次后返回 429 与 `Retry-After: 60`。
 
 | 控制能力 | 端点 |
 | --- | --- |
+| 管理登录 | `GET /api/auth/session`、`POST /api/auth/login`、`POST /api/auth/logout` |
 | 状态与模型 | `GET /api/status`、`GET /api/models` |
 | 生成服务 | `POST /api/control/start`、`POST /api/control/stop` |
 | 账户 | `GET /api/accounts`、`POST /api/accounts`、`GET/POST /api/accounts/import/chrome`、`PUT /api/accounts/{id}`、`DELETE /api/accounts/{id}` |
@@ -1138,9 +1143,13 @@ Chrome 导入列表按 `Preferences.account_info` 中的 Gaia ID 与邮箱逐个
 | `auth_states`、`proxy`、`init_timeout`、`request_timeout` | 保存值；下一次启动生成服务时使用 |
 | `warm_worker_limit`、`max_active_workers`、`warm_startup_concurrency`、`per_account_concurrency` | 保存值；下一次启动生成服务时使用 |
 | `temporary_chat` | 保存值；下一次启动生成服务时使用 |
+| `build_native_nonstream` | 保存值；下一次启动生成服务时决定非流式请求是否优先选择 Build |
+| `admin_auth_enabled`、`admin_username` | 保存值；下一管理进程使用 |
+| `admin_password` | 只写；省略时保留现值，下一管理进程使用 |
+| `admin_password_set` | response-only；是否已保存管理密码 |
 | `listen_addr`、`proxy_api_key` | 保存值；下一管理进程使用 |
 | `active_listen_addr`、`active_proxy_api_key` | response-only；当前管理进程固定值 |
-| `management_restart_required` | response-only；保存的 listen/key 与当前管理进程不同 |
+| `management_restart_required` | response-only；保存的监听地址、API key 或管理凭据与当前管理进程不同 |
 | `service_restart_required` | response-only；保存的生成服务配置与当前生成服务实例不同 |
 
 `GET /api/config` 返回当前运行配置（只读）。配置在启动时从环境变量或 `.env` 加载，不支持通过 API 运行时修改。
@@ -1694,6 +1703,42 @@ Anthropic SSE：
 
 delta 联合类型为 `text_delta{text}`、`thinking_delta{thinking}`、`signature_delta{signature}`、`input_json_delta{partial_json}`。thinking signature 在对应 thinking block 关闭前发送；redacted thinking 使用一个 start/stop block；tool_use 先发送空 input，再通过 `input_json_delta` 发送完整参数 JSON。搜索块在来源汇总后以完整的 start/stop block 输出，查询计数随最终 `message_delta.usage` 返回。
 
+### Gemini Interactions
+
+`POST /v1beta/interactions` 与 `POST /v1/interactions` 接受同一创建请求，通过 `x-goog-api-key`、Bearer 或 `key` 查询参数认证。
+
+```json
+{
+  "model": "gemini-3.8-flash-tts",
+  "input": [{"type":"user_input","content":[{
+    "type":"text","text":"Have a wonderful day!",
+    "annotations":[{"type":"speech_metadata","style":"cheerful and friendly"}]
+  }]}],
+  "response_format": {"type":"audio","mime_type":"audio/l16","sample_rate":24000},
+  "generation_config": {"speech_config":[{"voice":"Kore"}]},
+  "stream": true
+}
+```
+
+| 字段 | 映射 |
+| --- | --- |
+| `input` | 字符串、单个内容块、内容块数组或步骤数组；内容类型为 `text`、`image`、`audio`、`video`、`document` |
+| 媒体内容 | `mime_type` 与 `data`（Base64）或 `uri` 二选一，复用 Gemini 文件与内联媒体解析 |
+| 输入步骤 | `user_input`、`model_output`、`thought`、`function_call`、`function_result`；函数结果通过 `call_id` 匹配历史调用 |
+| `system_instruction` | 当前请求的系统指令 |
+| `generation_config` | `temperature`、`top_p`、`top_k`、`max_output_tokens`、`seed`、`stop_sequences`、`thinking_level`、`thinking_summaries`、`speech_config`、`tool_choice` |
+| `response_format` | 单对象或数组；文本使用 `{type:"text",mime_type:"application/json",schema:{...}}` 请求结构化输出；图片使用 `{type:"image",aspect_ratio?,image_size?}` |
+| 语音配置 | `speech_config:[{voice}]`；多说话人使用 `{speakers:[{speaker,voice}],mode?}`，`mode` 为 `verbatim` 或 `conversational` |
+| 语音文本 | 文本块 `annotations` 中的 `{type:"speech_metadata",speaker?,style?}` 保留说话人与风格 |
+| 函数与工具 | `tools:[{type:"function",name,description?,parameters?}]`；另接受 `google_search`、`url_context`、`code_execution`、`google_maps`；`tool_choice` 为 `auto` 或 `none` |
+| 续接 | 默认保存；`previous_interaction_id` 重建前序内容，`store:false` 仅返回本次响应；当前服务实例最多保存 256 个响应节点 |
+
+音频输出为 24 kHz、16-bit 小端、单声道。非流式默认 `audio/wav`，流式默认 `audio/l16`；显式 WAV 流在音频汇总完成后发送一个有效 WAV 块。`sample_rate` 可省略或设为 `24000`，`delivery` 可省略或设为 `inline`。创建请求在当前连接内执行，`background` 可省略或设为 `false`。
+
+非流式响应包含 `id`、`object:"interaction"`、`model`、`created`、`updated`、`status`、`steps` 与 `usage`。`steps` 的 `model_output.content` 保存文本或媒体，音频位于 `{type:"audio",data,mime_type,sample_rate,channels}`；SDK 的 `output_audio` 与 `output_text` 从这些步骤读取。函数调用作为 `function_call` 步骤返回，状态为 `requires_action`；正常生成状态为 `completed`，输出限额等提前终止状态为 `incomplete`。
+
+SSE 使用相同的事件名与 JSON `event_type`：`interaction.created` → `step.start` → `step.delta` → `step.stop` → `interaction.completed`。步骤以 `index` 对应，音频增量为 `{type:"audio",data,mime_type,sample_rate,channels}`。10 秒无语义事件时发送 `: ping`，上游错误或缺失终态发送 `error` 事件并结束；客户端断开会取消上游生成。流开始前使用 Gemini HTTP 错误对象。
+
 ### Gemini GenerateContent
 
 `POST /v1beta/models/{model}:generateContent`、`:streamGenerateContent` 与 `:countTokens` 接受：
@@ -1817,6 +1862,8 @@ tool group 字段：
 
 `groundingMetadata` 字段为 `searchEntryPoint`、`groundingChunks`、`groundingSupports`、`retrievalMetadata`、`webSearchQueries`、`googleMapsWidgetContextToken`。`searchEntryPoint` 包含 `renderedContent`、`sdkBlob`；`groundingChunks` 元素的 oneof 为 `web:{uri,title}`、`retrievedContext:{uri,title,text}` 或 `maps:{uri,title,text,placeId}`；`groundingSupports` 元素包含 `segment:{partIndex,startIndex,endIndex,text}`、`groundingChunkIndices` 和可选 `confidenceScores`；`retrievalMetadata` 包含 `googleSearchDynamicRetrievalScore`。`citationMetadata.citationSources` 的元素包含 `uri`、`title`、`startIndex`、`endIndex`。
 
+非流式结果合并相邻、同类且无签名边界的正文或思考片段。工具、媒体与带转录元数据的 Part 保持独立；独立签名附着于前一未签名 Part，缺少可附着内容时用 `{"text":"","thought":true,"thoughtSignature":"..."}` 承载。
+
 `:streamGenerateContent` 使用 SSE。每个语义事件发送一个部分 `GenerateContentResponse`，包含 `responseId`、`modelVersion` 与一个 candidate Part、grounding 或 citation；最后一帧包含 candidate `finishReason`、可选 `finishMessage` 和 `usageMetadata`。响应头后的错误帧为 `data: {"error":{"code","message","status"}}`。
 
 ### Files、Transcribe 与媒体
@@ -1898,7 +1945,7 @@ File object：
 | `speed` | 省略/`0` 或 `1` |
 | `instructions` | 作为文本 part 的 `speechMetadata.style`；旧 TTS 模型以 `instructions + "\n\n" + input` 形成提示 |
 
-`pcm` 返回上游 PCM body 与 MIME；`wav` 要求上游 `audio/l16` 和有效 rate，再封装 16-bit WAV；响应设置 `Content-Type` 与 `Content-Length`。
+`pcm` 返回 PCM body 与采样参数；上游返回 PCM16 WAV 时先提取音频数据。`wav` 将上游 `audio/l16` 按有效 rate 与 channels 封装为 16-bit WAV；原生 WAV 保留对应音频格式，多个片段先合并 PCM 数据再封装。响应设置 `Content-Type` 与 `Content-Length`。
 
 旧 TTS 模型的语音请求按官网 wire 在首个文本前写入 `## Transcript:\n`，AUDIO-only generation config 不写默认 `maxOutputTokens`；`responseModalities` 与 `speechConfig` 分别写入官网确认的槽位。
 

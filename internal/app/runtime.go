@@ -105,8 +105,9 @@ func newRuntime(
 		headers.Close()
 		return nil, nil, nil, errors.Join(err, workers.Close())
 	}
-
+	pooled.BuildNativeNonstream = cfg.BuildNativeNonstream
 	service := newTrackedService(lifecycle, pooled, pool, requests, workers, cfg.RequestTimeout)
+	service.buildNativeNonstream = cfg.BuildNativeNonstream
 	admin := newRuntimeAdmin(lifecycle, pool, store, service, requests, login, workers, headers, cfg)
 
 	requests.log("service", "INFO", fmt.Sprintf(
@@ -1988,29 +1989,30 @@ func (provider *accountHeaderProvider) ProtocolHeaders(ctx context.Context, acco
 
 // trackedService tracks generation requests and their exclusive account leases.
 type trackedService struct {
-	lifecycle          context.Context
-	service            aistudio.Service
-	catalog            modelCatalogService
-	pool               *aistudio.AccountPool
-	requests           *requestRegistry
-	workers            *accountWorkerManager
-	timeout            time.Duration
-	state              atomic.Int32
-	lifecycleMu        sync.Mutex
-	transitionDone     chan struct{}
-	transitionErr      error
-	transitionTimedOut bool
-	dataContext        context.Context
-	dataCancel         context.CancelFunc
-	modelsMu           sync.RWMutex
-	models             []aistudio.Model
-	modelSyncMu        sync.Mutex
-	modelRetriesMu     sync.Mutex
-	modelRetries       map[string]struct{}
-	modelRefreshDone   <-chan struct{}
-	modelChangeMu      sync.Mutex
-	modelRevision      uint64
-	modelApplied       uint64
+	buildNativeNonstream bool
+	lifecycle            context.Context
+	service              aistudio.Service
+	catalog              modelCatalogService
+	pool                 *aistudio.AccountPool
+	requests             *requestRegistry
+	workers              *accountWorkerManager
+	timeout              time.Duration
+	state                atomic.Int32
+	lifecycleMu          sync.Mutex
+	transitionDone       chan struct{}
+	transitionErr        error
+	transitionTimedOut   bool
+	dataContext          context.Context
+	dataCancel           context.CancelFunc
+	modelsMu             sync.RWMutex
+	models               []aistudio.Model
+	modelSyncMu          sync.Mutex
+	modelRetriesMu       sync.Mutex
+	modelRetries         map[string]struct{}
+	modelRefreshDone     <-chan struct{}
+	modelChangeMu        sync.Mutex
+	modelRevision        uint64
+	modelApplied         uint64
 }
 
 type modelCatalogService interface {
@@ -3428,6 +3430,17 @@ func (service *trackedService) generateWithRetry(
 		if resourceID != "" || request.Config.SpeechConfig != nil && request.Config.SpeechConfig.Mode != "" {
 			selection.PlaygroundOnly = true
 		}
+		fallbackReason := ""
+		if request.Unary {
+			switch {
+			case selection.PlaygroundOnly:
+				fallbackReason = "request contains Playground-specific capabilities or file references"
+			case !service.buildNativeNonstream:
+				fallbackReason = "Build native non-streaming preference is disabled"
+			default:
+				selection.Channel = aistudio.ChannelBuild
+			}
+		}
 		if (unbound || fileBound) && len(attempted) > 0 {
 			enabled, _ := service.pool.EnabledAccounts()
 			for _, accountID := range enabled {
@@ -3438,6 +3451,14 @@ func (service *trackedService) generateWithRetry(
 		}
 
 		nextLease, acquireErr := service.acquireWarmLease(requestCtx, selection)
+		if acquireErr != nil && selection.Channel == aistudio.ChannelBuild && requestCtx.Err() == nil {
+			var cooling *aistudio.AllCoolingError
+			if errors.Is(acquireErr, aistudio.ErrNoEligibleAccount) || errors.As(acquireErr, &cooling) {
+				fallbackReason = "native Build channel unavailable: " + acquireErr.Error()
+				selection.Channel = ""
+				nextLease, acquireErr = service.acquireWarmLease(requestCtx, selection)
+			}
+		}
 		if acquireErr != nil {
 			var ownerCooling *aistudio.AllCoolingError
 			if fileBound && !copyFiles && (errors.Is(acquireErr, aistudio.ErrNoEligibleAccount) || errors.As(acquireErr, &ownerCooling)) && requestCtx.Err() == nil {
@@ -3468,6 +3489,18 @@ func (service *trackedService) generateWithRetry(
 		service.requests.markChannel(request.ID, string(lease.Channel()))
 		service.requests.logRequestProgress(request.ID, accountLabel, "INFO", "Waiting for upstream response")
 		attemptCtx := aistudio.ContextWithAccountLease(requestCtx, lease)
+		attemptCtx = aistudio.ContextWithUpstreamModeObserver(attemptCtx, func(method, mode, reason string) {
+			level := "INFO"
+			message := fmt.Sprintf("Upstream call | channel=%s | mode=%s | rpc=%s", lease.Channel(), mode, method)
+			if reason != "" {
+				level = "WARN"
+				if fallbackReason != "" {
+					reason = fallbackReason + "; " + reason
+				}
+				message += " | fallback=streaming | reason=" + reason
+			}
+			service.requests.logRequestProgress(request.ID, accountLabel, level, message)
+		})
 		var attemptCopies *aistudio.TemporaryFileCopies
 		copiedFileCount := 0
 
@@ -3622,7 +3655,9 @@ func (service *trackedService) generateWithRetry(
 					"Account cooldown | type=%s | scope=%s | reset=%s",
 					cooldown.Kind, scopeLabel, cooldown.Until.Format(time.RFC3339),
 				))
-				if !cooldown.Global && service.pool.AccountChannelAvailable(request.AccountID, selection) {
+				availableSelection := selection
+				availableSelection.Channel = ""
+				if !cooldown.Global && service.pool.AccountChannelAvailable(request.AccountID, availableSelection) {
 					delete(attempted, request.AccountID)
 					maxAttempts++
 				}

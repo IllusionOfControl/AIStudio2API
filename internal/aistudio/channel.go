@@ -99,6 +99,12 @@ func (p *AccountPool) selectionChannelsLocked(selection AccountSelection) []Chan
 	if !generationChannelSelection(selection) {
 		return []Channel{ChannelPlayground}
 	}
+	if selection.Channel != "" {
+		if p.channelEnabledLocked(selection.Channel) {
+			return []Channel{selection.Channel}
+		}
+		return nil
+	}
 	return p.enabledChannelsLocked()
 }
 
