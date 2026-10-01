@@ -11,7 +11,7 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 )
 
-// interactionMedia 投影音频容器、采样参数及其他媒体内容
+// interactionMedia projects audio containers, sampling parameters, and other media content.
 func interactionMedia(media aistudio.Media, audioFormat string) (map[string]any, error) {
 	baseType, parameters, err := mime.ParseMediaType(media.MIME)
 	if err != nil {
@@ -58,7 +58,7 @@ func interactionMedia(media aistudio.Media, audioFormat string) (map[string]any,
 	return content, nil
 }
 
-// interactionStep 将单个规范事件投影为步骤内容与对应增量
+// interactionStep projects a single canonical event to step content and delta.
 func interactionStep(event aistudio.Event, audioFormat string) (map[string]any, map[string]any, error) {
 	var content map[string]any
 	switch event.Kind {
@@ -102,7 +102,7 @@ func interactionStep(event aistudio.Event, audioFormat string) (map[string]any, 
 	return map[string]any{"type": "model_output", "content": []map[string]any{content}}, content, nil
 }
 
-// interactionSteps 汇总完整内容并将所有 PCM 分块封装为一段音频
+// interactionSteps aggregates complete content and wraps all PCM chunks into single audio segment.
 func interactionSteps(result generationResult, audioFormat string, summaries bool) ([]map[string]any, error) {
 	steps := make([]map[string]any, 0)
 	audioWritten := false
@@ -164,7 +164,7 @@ func interactionSteps(result generationResult, audioFormat string, summaries boo
 	return steps, nil
 }
 
-// streamInteraction 输出创建、步骤增量、步骤结束与交互终态
+// streamInteraction outputs creation, step deltas, step completions, and final interaction status.
 func (s *server) streamInteraction(w http.ResponseWriter, r *http.Request, request interactionRequest, generate aistudio.GenerateRequest, current []aistudio.Content, created string, events <-chan aistudio.Event) {
 	if err := streamHeaders(w); err != nil {
 		return
@@ -269,7 +269,7 @@ func (s *server) streamInteraction(w http.ResponseWriter, r *http.Request, reque
 	}
 }
 
-// interactionCallSignature 提取函数调用携带的可回传思考签名
+// interactionCallSignature extracts echoable thought signatures carried by function calls.
 func interactionCallSignature(event aistudio.Event) string {
 	if event.Kind != aistudio.EventToolCall || event.ToolCall == nil {
 		return ""

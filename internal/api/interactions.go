@@ -10,7 +10,7 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 )
 
-// handleInteraction 将公开 Interactions 请求接入规范生成链路
+// handleInteraction routes public Interactions requests into canonical generation pipeline.
 func (s *server) handleInteraction(w http.ResponseWriter, r *http.Request) {
 	var request interactionRequest
 	if err := decodeJSON(r, &request); err != nil {
@@ -73,7 +73,7 @@ func (s *server) handleInteraction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// validateInteractionResult 确认请求音频时已收到可用音频内容
+// validateInteractionResult verifies audio content was received when audio was requested.
 func validateInteractionResult(request aistudio.GenerateRequest, result generationResult) error {
 	for _, modality := range request.Config.ResponseModalities {
 		if modality == aistudio.ResponseModalityAudio {
@@ -84,7 +84,7 @@ func validateInteractionResult(request aistudio.GenerateRequest, result generati
 	return nil
 }
 
-// resolveInteractionResults 从完整调用历史补齐函数结果名称
+// resolveInteractionResults resolves function result names from full call history.
 func resolveInteractionResults(contents []aistudio.Content) error {
 	calls := make(map[string]string)
 	for _, content := range contents {
@@ -106,7 +106,7 @@ func resolveInteractionResults(contents []aistudio.Content) error {
 	return nil
 }
 
-// interactionObject 构造 SDK 使用的资源标识、状态与用量
+// interactionObject constructs resource identifier, status, and usage for SDK clients.
 func interactionObject(request aistudio.GenerateRequest, created, status string, usage *aistudio.Usage) map[string]any {
 	object := map[string]any{
 		"id": request.ID, "object": "interaction", "model": request.Model,
@@ -122,7 +122,7 @@ func interactionObject(request aistudio.GenerateRequest, created, status string,
 	return object
 }
 
-// interactionStatus 将生成终态转换为交互资源状态
+// interactionStatus maps final generation state to interaction resource status.
 func interactionStatus(result generationResult) string {
 	if result.finishReason != "stop" && result.finishReason != "tool_calls" {
 		return "incomplete"

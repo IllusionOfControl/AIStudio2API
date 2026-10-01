@@ -18,12 +18,12 @@ type requestPhaseContextKey struct{}
 
 type upstreamModeContextKey struct{}
 
-// ContextWithUpstreamModeObserver 记录实际 RPC、传输模式与流式回退原因
+// ContextWithUpstreamModeObserver records actual RPC, transport mode, and streaming fallback reason.
 func ContextWithUpstreamModeObserver(ctx context.Context, observer func(string, string, string)) context.Context {
 	return context.WithValue(ctx, upstreamModeContextKey{}, observer)
 }
 
-// reportUpstreamMode 在发送请求前报告实际采用的上游调用方式
+// reportUpstreamMode reports the upstream call mode actually used before dispatching.
 func reportUpstreamMode(ctx context.Context, method, mode, reason string) {
 	if observer, ok := ctx.Value(upstreamModeContextKey{}).(func(string, string, string)); ok {
 		observer(method, mode, reason)

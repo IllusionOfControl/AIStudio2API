@@ -10,7 +10,7 @@ const password = ref('')
 const busy = ref(false)
 const error = ref('')
 
-// login 提交管理员凭据并清理密码输入
+// login submits admin credentials and clears password input.
 async function login(): Promise<void> {
   busy.value = true
   error.value = ''

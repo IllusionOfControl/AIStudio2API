@@ -14,20 +14,20 @@ import (
 const adminCookieName = "aistudio_admin"
 const adminSessionLifetime = 12 * time.Hour
 
-// adminSession 保存管理会话及其关联请求的取消信号
+// adminSession stores the admin session and cancellation signals for associated requests.
 type adminSession struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	expires time.Time
 }
 
-// loginAttempt 保存来源地址在一分钟内的失败次数
+// loginAttempt tracks failed attempts from a client address within a one-minute window.
 type loginAttempt struct {
 	count int
 	until time.Time
 }
 
-// adminAuth 管理独立于生成 API 密钥的登录会话
+// adminAuth manages login sessions separate from generation API keys.
 type adminAuth struct {
 	mu       sync.Mutex
 	config   Config
@@ -35,12 +35,12 @@ type adminAuth struct {
 	attempts map[string]loginAttempt
 }
 
-// newAdminAuth 创建进程级管理认证
+// newAdminAuth creates a process-level admin authenticator.
 func newAdminAuth(config Config) *adminAuth {
 	return &adminAuth{config: config, sessions: make(map[string]*adminSession), attempts: make(map[string]loginAttempt)}
 }
 
-// handler 统一管理认证、同源检查与会话接口
+// handler manages authentication, same-origin verification, and session endpoints.
 func (auth *adminAuth) handler(next http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/auth/session", auth.status)
@@ -58,7 +58,7 @@ func (auth *adminAuth) handler(next http.Handler) http.Handler {
 	})
 }
 
-// session 查询有效 Cookie 会话
+// session retrieves a valid cookie session.
 func (auth *adminAuth) session(r *http.Request) *adminSession {
 	cookie, err := r.Cookie(adminCookieName)
 	if err != nil {
@@ -75,7 +75,7 @@ func (auth *adminAuth) session(r *http.Request) *adminSession {
 	return session
 }
 
-// requireSession 在管理请求期间同时监听退出登录和会话到期
+// requireSession monitors logout and session expiry during admin requests.
 func (auth *adminAuth) requireSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !auth.config.AdminAuthEnabled {
@@ -95,7 +95,7 @@ func (auth *adminAuth) requireSession(next http.Handler) http.Handler {
 	})
 }
 
-// status 返回登录页面需要的会话状态
+// status returns the session status required by the login page.
 func (auth *adminAuth) status(w http.ResponseWriter, r *http.Request) {
 	loggedIn := auth.config.AdminAuthEnabled && auth.session(r) != nil
 	username := ""
@@ -107,7 +107,7 @@ func (auth *adminAuth) status(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// login 验证管理员凭据并签发限时会话
+// login validates admin credentials and issues a time-limited session.
 func (auth *adminAuth) login(w http.ResponseWriter, r *http.Request) {
 	if !auth.config.AdminAuthEnabled {
 		auth.status(w, r)
@@ -171,7 +171,7 @@ func (auth *adminAuth) login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"enabled": true, "authenticated": true, "username": auth.config.AdminUsername})
 }
 
-// removeSession 在持锁期间撤销会话
+// removeSession revokes a session while holding the lock.
 func (auth *adminAuth) removeSession(token string) {
 	if session := auth.sessions[token]; session != nil {
 		session.cancel()
@@ -179,7 +179,7 @@ func (auth *adminAuth) removeSession(token string) {
 	}
 }
 
-// logout 撤销当前浏览器的管理会话
+// logout revokes the admin session for the current browser.
 func (auth *adminAuth) logout(w http.ResponseWriter, r *http.Request) {
 	auth.mu.Lock()
 	if cookie, err := r.Cookie(adminCookieName); err == nil {
@@ -190,7 +190,7 @@ func (auth *adminAuth) logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// setCookie 写入浏览器专用的管理会话 Cookie
+// setCookie writes a browser-scoped admin session cookie.
 func (auth *adminAuth) setCookie(w http.ResponseWriter, r *http.Request, token string, age int) {
 	http.SetCookie(w, &http.Cookie{
 		Name: adminCookieName, Value: token, Path: "/api", MaxAge: age,

@@ -2,7 +2,7 @@ package aistudio
 
 import "encoding/json"
 
-// buildResponseSchema 将已校验的 Schema 字段投影为 Build 接收的 protobuf JSON
+// buildResponseSchema projects validated schema fields into protobuf JSON expected by Build.
 func buildResponseSchema(wire []any) map[string]any {
 	names := [...]string{
 		"type", "format", "description", "nullable", "enum", "items", "properties", "required",

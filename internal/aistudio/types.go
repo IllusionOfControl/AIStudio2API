@@ -235,7 +235,7 @@ type GenerateRequest struct {
 	AccountID string           `json:"account_id,omitempty"`
 	// ImageRoute internal flag: image generation model (derived from model catalog capabilities)
 	ImageRoute bool `json:"-"`
-	// Unary 标记单次非流式请求（在 Build 代理中使用 ProxyUnaryCall）
+	// Unary marks a single non-streaming request (using ProxyUnaryCall in Build proxy).
 	Unary bool `json:"-"`
 }
 

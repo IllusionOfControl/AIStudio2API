@@ -38,7 +38,7 @@ func TestGeminiInlineDataCompatibility(t *testing.T) {
 	}
 }
 
-// TestSpeechWAV 验证原生 WAV 的 PCM 输出、容器合并与音频元数据
+// TestSpeechWAV verifies PCM output, container merging, and audio metadata for native WAV.
 func TestSpeechWAV(t *testing.T) {
 	pcm := []byte{1, 2, 3, 4}
 	wav := pcmWAV(pcm, 24000, 1)

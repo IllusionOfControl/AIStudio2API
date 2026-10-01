@@ -143,7 +143,7 @@ func interactionThinkingLevel(config GenerationConfig, defaults GenerationDefaul
 func (c *Client) generateInteraction(ctx context.Context, request GenerateRequest, entry modelEntry) (<-chan Event, error) {
 	reason := ""
 	if request.Unary {
-		reason = "该模型使用 CreateInteractionStream，收集完成后返回"
+		reason = "model uses CreateInteractionStream; returns after collecting chunks"
 	}
 	reportUpstreamMode(ctx, "CreateInteractionStream", "stream", reason)
 	body, binding, err := EncodeCreateInteractionStreamRequest(request, entry.defaults)

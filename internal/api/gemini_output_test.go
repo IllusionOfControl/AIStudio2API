@@ -25,7 +25,7 @@ func TestGeminiOutputParts_MergeTextAndReasoning(t *testing.T) {
 		t.Fatalf("expected 2 parts, got %d: %+v", len(parts), parts)
 	}
 
-	// 合并相邻思考并挂载签名
+	// Merge adjacent thoughts and attach signatures
 	expectedThought := map[string]any{
 		"thought":          true,
 		"text":             "I think therefore I am.",
@@ -35,7 +35,7 @@ func TestGeminiOutputParts_MergeTextAndReasoning(t *testing.T) {
 		t.Errorf("parts[0] = %+v, want %+v", parts[0], expectedThought)
 	}
 
-	// 合并相邻正文
+	// Merge adjacent text
 	expectedText := map[string]any{
 		"text": "Hello world!",
 	}
@@ -140,7 +140,7 @@ func TestGeminiOutputParts_WithToolCall(t *testing.T) {
 	}
 }
 
-// TestGeminiOutputParts_SignedBoundaries 保留相邻内容的签名边界
+// TestGeminiOutputParts_SignedBoundaries preserves signature boundaries for adjacent content.
 func TestGeminiOutputParts_SignedBoundaries(t *testing.T) {
 	for _, kind := range []aistudio.EventKind{aistudio.EventText, aistudio.EventReasoning} {
 		parts := geminiOutputParts(generationResult{events: []aistudio.Event{
@@ -153,7 +153,7 @@ func TestGeminiOutputParts_SignedBoundaries(t *testing.T) {
 	}
 }
 
-// TestGeminiOutputParts_PendingSignature 保留前置签名与已有签名
+// TestGeminiOutputParts_PendingSignature preserves pending signatures alongside existing signatures.
 func TestGeminiOutputParts_PendingSignature(t *testing.T) {
 	parts := geminiOutputParts(generationResult{events: []aistudio.Event{
 		{Kind: aistudio.EventThoughtSignature, ThoughtSignature: "sig-a"},
@@ -170,7 +170,7 @@ func TestGeminiOutputParts_PendingSignature(t *testing.T) {
 	}
 }
 
-// TestGeminiOutputParts_TrailingSignatures 保留尾部签名与已有签名的顺序
+// TestGeminiOutputParts_TrailingSignatures preserves the order of trailing and existing signatures.
 func TestGeminiOutputParts_TrailingSignatures(t *testing.T) {
 	parts := geminiOutputParts(generationResult{events: []aistudio.Event{
 		{Kind: aistudio.EventText, Text: "answer", ThoughtSignature: "sig-a"},
@@ -185,7 +185,7 @@ func TestGeminiOutputParts_TrailingSignatures(t *testing.T) {
 	}
 }
 
-// TestGeminiOutputParts_LeadingSignatures 保留连续前置签名的原始顺序
+// TestGeminiOutputParts_LeadingSignatures preserves original order of consecutive leading signatures.
 func TestGeminiOutputParts_LeadingSignatures(t *testing.T) {
 	parts := geminiOutputParts(generationResult{events: []aistudio.Event{
 		{Kind: aistudio.EventThoughtSignature, ThoughtSignature: "sig-a"},
@@ -204,7 +204,7 @@ func TestGeminiOutputParts_LeadingSignatures(t *testing.T) {
 	}
 }
 
-// TestGeminiOutputParts_SignedAudio 保留 PCM 音频片段的独立签名
+// TestGeminiOutputParts_SignedAudio preserves standalone signatures for PCM audio chunks.
 func TestGeminiOutputParts_SignedAudio(t *testing.T) {
 	var result generationResult
 	for _, sig := range []string{"audio-a", "audio-b"} {

@@ -8,7 +8,7 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/aistudio"
 )
 
-// interactionRequest 表示公开 Interactions 创建请求
+// interactionRequest represents a public Interactions creation request.
 type interactionRequest struct {
 	Model      string          `json:"model"`
 	Input      json.RawMessage `json:"input"`
@@ -33,7 +33,7 @@ type interactionRequest struct {
 	} `json:"generation_config"`
 }
 
-// interactionFormat 表示文本、图片与音频的返回配置
+// interactionFormat specifies return configurations for text, image, and audio.
 type interactionFormat struct {
 	Type        string          `json:"type"`
 	MIME        string          `json:"mime_type"`
@@ -45,7 +45,7 @@ type interactionFormat struct {
 	ImageSize   string          `json:"image_size"`
 }
 
-// interactionInput 表示输入内容块或执行步骤
+// interactionInput represents an input content chunk or execution step.
 type interactionInput struct {
 	Type        string             `json:"type"`
 	Text        *string            `json:"text"`
@@ -67,7 +67,7 @@ type interactionInput struct {
 	} `json:"annotations"`
 }
 
-// interactionList 解析协议中的单对象或数组联合字段
+// interactionList parses single-object or array union fields in the protocol.
 func interactionList[T any](raw json.RawMessage) ([]T, error) {
 	value := strings.TrimSpace(string(raw))
 	if value == "" || value == "null" {
@@ -85,7 +85,7 @@ func interactionList[T any](raw json.RawMessage) ([]T, error) {
 	return []T{item}, nil
 }
 
-// toGenerateRequest 映射模型、结构化输入、生成参数与函数声明
+// toGenerateRequest maps model, structured input, generation parameters, and function declarations.
 func (request interactionRequest) toGenerateRequest(id string) (aistudio.GenerateRequest, error) {
 	generate := aistudio.GenerateRequest{ID: id, Model: strings.TrimPrefix(strings.TrimSpace(request.Model), "models/"), System: request.System}
 	if generate.Model == "" || len(request.Input) == 0 {
@@ -174,7 +174,7 @@ func (request interactionRequest) toGenerateRequest(id string) (aistudio.Generat
 	return generate, err
 }
 
-// interactionContents 保留输入步骤顺序并合并同一角色的内容块
+// interactionContents preserves step order and merges content chunks of the same role.
 func interactionContents(raw json.RawMessage) ([]aistudio.Content, error) {
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
@@ -255,7 +255,7 @@ func interactionContents(raw json.RawMessage) ([]aistudio.Content, error) {
 	return contents, nil
 }
 
-// parts 复用 Gemini 的文本、媒体与文件输入映射
+// parts reuses Gemini text, media, and file input mappings.
 func (content interactionInput) parts() ([]aistudio.Part, error) {
 	var part geminiPart
 	switch content.Type {
@@ -285,7 +285,7 @@ func (content interactionInput) parts() ([]aistudio.Part, error) {
 	return parts, err
 }
 
-// interactionSpeech 转换单人声音列表与多说话人配置
+// interactionSpeech converts single voice list and multi-speaker configuration.
 func interactionSpeech(raw json.RawMessage) (*aistudio.SpeechConfig, error) {
 	if !rawJSONConfigured(raw) {
 		return nil, nil
@@ -329,7 +329,7 @@ func interactionSpeech(raw json.RawMessage) (*aistudio.SpeechConfig, error) {
 	return speech, nil
 }
 
-// audioFormat 按请求模态选择完整 WAV 或流式 PCM
+// audioFormat selects full WAV or streaming PCM based on requested modality.
 func (request interactionRequest) audioFormat() string {
 	formats, _ := interactionList[interactionFormat](request.Formats)
 	for _, format := range formats {

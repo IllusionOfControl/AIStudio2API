@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestChannelSelection 保留文件绑定与专属能力的通道资格
+// TestChannelSelection verifies channel qualification preserving file bindings and dedicated capabilities.
 func TestChannelSelection(t *testing.T) {
 	pool := NewAccountPool(nil, 1)
 	pool.SetUpstreamChannels([]Channel{ChannelPlayground, ChannelBuild})

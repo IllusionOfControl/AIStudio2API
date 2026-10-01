@@ -3434,9 +3434,9 @@ func (service *trackedService) generateWithRetry(
 		if request.Unary {
 			switch {
 			case selection.PlaygroundOnly:
-				fallbackReason = "请求包含 Playground 专用能力或文件引用"
+				fallbackReason = "request contains Playground-specific capabilities or file references"
 			case !service.buildNativeNonstream:
-				fallbackReason = "Build 非流式优先选项已关闭"
+				fallbackReason = "Build native non-streaming preference is disabled"
 			default:
 				selection.Channel = aistudio.ChannelBuild
 			}
@@ -3454,7 +3454,7 @@ func (service *trackedService) generateWithRetry(
 		if acquireErr != nil && selection.Channel == aistudio.ChannelBuild && requestCtx.Err() == nil {
 			var cooling *aistudio.AllCoolingError
 			if errors.Is(acquireErr, aistudio.ErrNoEligibleAccount) || errors.As(acquireErr, &cooling) {
-				fallbackReason = "原生 Build 通道不可用: " + acquireErr.Error()
+				fallbackReason = "native Build channel unavailable: " + acquireErr.Error()
 				selection.Channel = ""
 				nextLease, acquireErr = service.acquireWarmLease(requestCtx, selection)
 			}
@@ -3491,13 +3491,13 @@ func (service *trackedService) generateWithRetry(
 		attemptCtx := aistudio.ContextWithAccountLease(requestCtx, lease)
 		attemptCtx = aistudio.ContextWithUpstreamModeObserver(attemptCtx, func(method, mode, reason string) {
 			level := "INFO"
-			message := fmt.Sprintf("上游调用 | 通道=%s | 模式=%s | RPC=%s", lease.Channel(), mode, method)
+			message := fmt.Sprintf("Upstream call | channel=%s | mode=%s | rpc=%s", lease.Channel(), mode, method)
 			if reason != "" {
 				level = "WARN"
 				if fallbackReason != "" {
 					reason = fallbackReason + "; " + reason
 				}
-				message += " | 回退流式 | 原因=" + reason
+				message += " | fallback=streaming | reason=" + reason
 			}
 			service.requests.logRequestProgress(request.ID, accountLabel, level, message)
 		})

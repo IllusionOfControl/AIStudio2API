@@ -9,18 +9,18 @@ const { t } = useI18n()
 const session = ref<AdminSession | null>(null)
 const error = ref('')
 
-// setSession 根据会话切换独立登录页与管理控制台
+// setSession toggles between standalone login page and management console based on session.
 function setSession(value: AdminSession): void {
   session.value = value
   history.replaceState(null, '', value.authenticated ? '/' : '/login')
 }
 
-// expireSession 卸载控制台及其事件订阅
+// expireSession unmounts console and cleans up event subscriptions.
 function expireSession(): void {
   setSession({ enabled: true, authenticated: false, username: '' })
 }
 
-// loadSession 在加载管理数据前确认会话
+// loadSession verifies session state before loading management data.
 async function loadSession(): Promise<void> {
   error.value = ''
   try {
@@ -30,7 +30,7 @@ async function loadSession(): Promise<void> {
   }
 }
 
-// logout 撤销当前会话并返回登录页
+// logout revokes the current session and redirects to login page.
 async function logout(): Promise<void> {
   try {
     await api.logout()

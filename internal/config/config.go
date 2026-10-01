@@ -116,7 +116,7 @@ func Load(path string) (Config, error) {
 	if value, ok := values["ADMIN_AUTH_ENABLED"]; ok {
 		cfg.AdminAuthEnabled, err = strconv.ParseBool(strings.TrimSpace(value))
 		if err != nil {
-			return Config{}, fmt.Errorf("ADMIN_AUTH_ENABLED 必须是 true 或 false")
+			return Config{}, fmt.Errorf("ADMIN_AUTH_ENABLED must be true or false")
 		}
 	}
 	if value, ok := values["ADMIN_USERNAME"]; ok {
@@ -128,7 +128,7 @@ func Load(path string) (Config, error) {
 	if value, ok := values["BUILD_NATIVE_NONSTREAM"]; ok {
 		cfg.BuildNativeNonstream, err = strconv.ParseBool(strings.TrimSpace(value))
 		if err != nil {
-			return Config{}, fmt.Errorf("BUILD_NATIVE_NONSTREAM 必须是 true 或 false")
+			return Config{}, fmt.Errorf("BUILD_NATIVE_NONSTREAM must be true or false")
 		}
 	}
 	if value, ok := values["AISTUDIO_AUTH_STATES"]; ok {
@@ -219,7 +219,7 @@ func Load(path string) (Config, error) {
 // Validate checks if the configuration values are valid for service startup.
 func (c Config) Validate() error {
 	if c.AdminAuthEnabled && (strings.TrimSpace(c.AdminUsername) == "" || strings.TrimSpace(c.AdminPassword) == "") {
-		return fmt.Errorf("开启管理登录需要 ADMIN_USERNAME 与 ADMIN_PASSWORD")
+		return fmt.Errorf("ADMIN_USERNAME and ADMIN_PASSWORD are required when admin auth is enabled")
 	}
 	if strings.TrimSpace(c.AuthStates) == "" {
 		return fmt.Errorf("AISTUDIO_AUTH_STATES cannot be empty")

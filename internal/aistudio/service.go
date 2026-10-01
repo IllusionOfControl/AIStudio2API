@@ -17,7 +17,7 @@ import (
 type PooledService struct {
 	pool   *AccountPool
 	client *Client
-	// BuildNativeNonstream 让非流式请求优先使用具备资格的 Build 通道
+	// BuildNativeNonstream prioritizes eligible Build channels for non-streaming requests.
 	BuildNativeNonstream bool
 }
 

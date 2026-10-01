@@ -11,7 +11,7 @@ import (
 	"github.com/Mag1cFall/AIStudio2API/internal/config"
 )
 
-// TestAdminConfig 验证凭据保存、密码保留与管理重启标记
+// TestAdminConfig verifies credential loading, password masking, and management restart flags.
 func TestAdminConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), ".env")
 	content := "ADMIN_AUTH_ENABLED=true\nADMIN_USERNAME=operator\nADMIN_PASSWORD=test-password\nBUILD_NATIVE_NONSTREAM=true\n"

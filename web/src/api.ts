@@ -49,7 +49,7 @@ export interface AdminSession {
   username: string
 }
 
-// checkSessionResponse 通知页面清理失效会话中的管理数据
+// checkSessionResponse notifies the page to clean up management data when session expires.
 function checkSessionResponse(path: string, response: Response): void {
   if (response.status === 401 && !path.startsWith('/api/auth/')) {
     window.dispatchEvent(new Event('admin-session-expired'))

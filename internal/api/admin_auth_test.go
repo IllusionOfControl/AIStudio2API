@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// authExchange 在内存中执行管理认证请求
+// authExchange executes an in-memory admin authentication request.
 func authExchange(handler http.Handler, method, path, body string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, "http://localhost"+path, strings.NewReader(body))
 	r.RemoteAddr = "127.0.0.1:5000"
@@ -23,7 +23,7 @@ func authExchange(handler http.Handler, method, path, body string, cookies ...*h
 	return w
 }
 
-// TestAdminSession 验证登录、会话 Cookie、登出与到期
+// TestAdminSession verifies login, session cookies, logout, and expiration.
 func TestAdminSession(t *testing.T) {
 	auth := newAdminAuth(Config{AdminAuthEnabled: true, AdminUsername: "operator", AdminPassword: "test-password"})
 	handler := auth.handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
@@ -59,7 +59,7 @@ func TestAdminSession(t *testing.T) {
 	}
 }
 
-// TestAdminLoginModes 验证回环免密与远程登录页面的状态
+// TestAdminLoginModes verifies loopback passwordless access and remote login page states.
 func TestAdminLoginModes(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		auth := newAdminAuth(Config{AdminAuthEnabled: enabled, AdminUsername: "operator", AdminPassword: "test-password"})
@@ -89,7 +89,7 @@ func TestAdminLoginModes(t *testing.T) {
 	}
 }
 
-// TestAdminLoginRateLimit 验证失败登录限流与到期后的恢复
+// TestAdminLoginRateLimit verifies login rate limiting on failure and recovery after expiry.
 func TestAdminLoginRateLimit(t *testing.T) {
 	auth := newAdminAuth(Config{AdminAuthEnabled: true, AdminUsername: "operator", AdminPassword: "test-password"})
 	handler := auth.handler(http.NotFoundHandler())

@@ -294,7 +294,7 @@ func pcmWAV(pcm []byte, sampleRate int, channels int) []byte {
 	return buffer.Bytes()
 }
 
-// wavPCM 提取 RIFF WAVE 的 PCM16 数据并保留采样率与声道
+// wavPCM extracts PCM16 data from RIFF WAVE preserving sample rate and channels.
 func wavPCM(media aistudio.Media) (aistudio.Media, error) {
 	data := media.Data
 	if len(data) < 12 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WAVE" {

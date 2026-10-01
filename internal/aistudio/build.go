@@ -787,13 +787,13 @@ func (c *Client) sendBuild(ctx context.Context, request GenerateRequest, entry m
 		unsupported := rpcErr.StatusCode == http.StatusMethodNotAllowed || rpcErr.StatusCode == http.StatusNotImplemented ||
 			rpcErr.Code == 12 || rpcErr.StatusCode == http.StatusBadRequest && strings.Contains(message, "support") && (strings.Contains(message, "stream") || strings.Contains(message, "unary"))
 		if unsupported {
-			return c.sendBuildMode(ctx, request, entry, false, "Build 原生单次调用不可用: "+rpcErr.Error())
+			return c.sendBuildMode(ctx, request, entry, false, "Build native unary call unavailable: "+rpcErr.Error())
 		}
 	}
 	return response, decoder, err
 }
 
-// sendBuildMode 按选定模式发送 Build 请求
+// sendBuildMode sends a Build request using the selected mode.
 func (c *Client) sendBuildMode(ctx context.Context, request GenerateRequest, entry modelEntry, unary bool, reason string) (*RPCResponse, func(io.Reader, func(Event) error) error, error) {
 	path, body, err := EncodeBuildGenerateRequest(request, entry.defaults, request.ImageRoute, unary)
 	if err != nil {
