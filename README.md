@@ -3,67 +3,67 @@
 # AI Studio to OpenAI, Anthropic & Gemini Compatible API
 
 <p align="center">
-  <a href="README.md"><b>中文</b></a>
-  &nbsp;|&nbsp;
-  <a href="README_en.md">English</a>
+<a href="README.md"><b>English</b></a>
+&nbsp;|&nbsp;
+<a href="README_ch.md">中文</a>
 </p>
 
 <p>
-  <b>一个基于 Go 的高性能代理服务</b><br>
-  将 Google AI Studio 网页协议转换为 OpenAI、Responses、Anthropic 和 Gemini 兼容 API
+  <b>A High-Performance Go Proxy Server</b><br>
+  Converts the Google AI Studio web protocol into OpenAI, Responses, Anthropic, and Gemini compatible APIs
 </p>
 
 <p>
-  Playground + Build 双额度通道 &nbsp;•&nbsp;
-  多账户高并发 &nbsp;•&nbsp;
-  Camoufox 与纯 Go 双 WAA 后端<br>
-  Claude Code、Codex 等 agent 客户端 &nbsp;•&nbsp;
-  Nano Banana、Veo、TTS 与 Omni
+  Playground + Build Dual Quota Channels &nbsp;•&nbsp;
+  High-Concurrency Multi-Account &nbsp;•&nbsp;
+  Camoufox and Pure Go WAA Backends<br>
+  Claude Code, Codex, and Other Agent Clients &nbsp;•&nbsp;
+  Nano Banana, Veo, TTS, and Omni
 </p>
 
 </div>
 
 ---
 
-## 核心能力
+## Core Capabilities
 
-- **双额度通道**: 每个账户同时拥有 Playground 与 Build 应用代理两份独立额度，`UPSTREAM_CHANNELS` 可单独或同时启用；一个通道触发限额后，同一账户由另一个通道继续
-- **多账户高并发**: 识别 Free、Pro、Ultra 与 Plus 权益，按实时模型目录在账户间轮询或优先复用
-- **两种 WAA 后端**: 默认由 Camoufox 持有官方 WAA 生命周期；设置 `WAA_BACKEND=go` 后由纯 Go 生成官方 proof，运行时不下载、不启动浏览器
-- **四套 API 协议**: OpenAI Chat Completions、OpenAI Responses、Anthropic Messages 与 Gemini GenerateContent
-- **主流 agent 客户端**: 支持 Claude Code、Codex、OpenCode、pi、omp、OpenClaw、Hermes 的文件读写工具调用，Claude Code、Codex、omp 的原生联网搜索可直接使用
+- **Dual Quota Channels**: Every account has separate Playground and Build app proxy quotas, and `UPSTREAM_CHANNELS` enables either or both; when one channel hits its limit, the same account continues on the other
+- **High-Concurrency Multi-Account**: Detects Free, Pro, Ultra, and Plus benefits and routes across accounts by the live model catalog with round-robin or fill-first
+- **Two WAA Backends**: Camoufox holds the official WAA lifecycle by default; with `WAA_BACKEND=go`, pure Go generates the official proof and no browser is downloaded or launched at runtime
+- **Four API Protocols**: OpenAI Chat Completions, OpenAI Responses, Anthropic Messages, and Gemini GenerateContent
+- **Mainstream Agent Clients**: Works with Claude Code, Codex, OpenCode, pi, omp, OpenClaw, and Hermes, including file read and write tool calls; native web search works in Claude Code, Codex, and omp
 
-## 特性
+## Features
 
-- **原生流式响应**: 实时输出正文、思考摘要、函数调用、Google 工具、媒体和 usage
-- **TTS 语音生成**: 支持 Gemini TTS 模型的单/多说话人音频生成
-- **图片生成**: 支持 Nano Banana 图片生成
-- **视频生成**: 支持 Veo 视频生成和图片转视频；Gemini Omni 通过四套生成接口接收文本、图片与视频输入，输出文本与 MP4 视频
-- **YouTube 输入**: 粘贴视频 URL 即可作为外部视频附件读取
-- **智能模型切换**: 从 AI Studio 实时发现模型并按 `model` 字段路由
-- **Google 工具**: 支持 Search、Image Search、URL Context、Code Execution 和 Maps
-- **Files 与 Transcribe**: 支持文件上传、查询、内容读取、删除和音频转录
-- **Live 与 Robotics**: 通过 WebSocket 支持文本、音频、JPEG、媒体结束、工具调用、恢复和中断
-- **反指纹检测**: 使用 Camoufox 持有官方 WAA 生命周期，并为每个账户固定浏览器指纹与出口
-- **图形界面启动器**: 通过网页管理账户、服务启停、实时日志、模型、请求和配置
-- **模块化架构**: Go 负责协议、调度、API 与管理端，Camoufox 负责 WAA 运行时和隔离登录
+- **Native Streaming**: Text, reasoning summaries, function calls, Google tools, media, and usage
+- **TTS Speech Generation**: Gemini TTS models for single-speaker and multi-speaker audio
+- **Image Generation**: Nano Banana image generation
+- **Video Generation**: Veo video generation and image-to-video; Gemini Omni accepts text, image, and video input and returns text and MP4 video through the four generation APIs
+- **YouTube Input**: Paste a video URL to attach and read the external video
+- **Smart Model Switching**: Discover models from AI Studio and route through the `model` field
+- **Google Tools**: Search, Image Search, URL Context, Code Execution, and Maps
+- **Files and Transcribe**: File upload, metadata, content, deletion, and audio transcription
+- **Live and Robotics**: WebSocket text, audio, JPEG images, media end, tool calls, resumption, and interruption
+- **Anti-Fingerprinting**: Camoufox holds the official WAA lifecycle with a stable browser fingerprint and network exit per account
+- **GUI Launcher**: Manage accounts, service controls, live logs, models, requests, and configuration in the web UI
+- **Modular Architecture**: Go handles protocols, scheduling, APIs, and management; Camoufox hosts WAA and isolated login
 
-## 系统要求
+## System Requirements
 
-- **Windows Release 运行**: Windows 10 或更高版本、`aistudio2api.exe` 和 `start.bat`
-- **Linux Release 运行**: 解压 `linux-amd64.tar.gz` 后运行 `./aistudio2api`，Camoufox 需要 Firefox 系运行库，Debian/Ubuntu 执行 `sudo apt install libgtk-3-0 libasound2 libnss3 libdbus-glib-1-2 libxtst6 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 libxcomposite1 libxdamage1 libxfixes3 fonts-liberation`
-- **源码运行**: Go 1.25.0+、Node.js 22.13+ 或 24+，以及配套 npm
-- **操作系统**: Windows、macOS、Linux
-- **内存**: 单账户建议 2GB+ 可用内存，每个常驻预热账户约增加 0.6GB
-- **网络**: 稳定的互联网连接访问 Google AI Studio
+- **Windows Release Runtime**: Windows 10 or later, `aistudio2api.exe`, and `start.bat`
+- **Linux Release Runtime**: Extract `linux-amd64.tar.gz` and run `./aistudio2api`; Camoufox needs the Firefox system libraries, on Debian/Ubuntu run `sudo apt install libgtk-3-0 libasound2 libnss3 libdbus-glib-1-2 libxtst6 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 libxcomposite1 libxdamage1 libxfixes3 fonts-liberation`
+- **Source Build**: Go 1.25.0+, Node.js 22.13+ or 24+, and its bundled npm
+- **Operating System**: Windows, macOS, Linux
+- **Memory**: 2GB+ available memory for one account; each resident prewarmed account adds about 0.6GB
+- **Network**: Stable internet connection to Google AI Studio
 
-## 安装步骤
+## Installation
 
-### 方式一：Windows 一键启动（推荐）
+### Method 1: Windows One-Click Start (Recommended)
 
-从 [Releases](https://github.com/Mag1cFall/AIStudio2API/releases) 下载 `windows-amd64.zip` 发布包，解压后运行 `start.bat`。发布包已包含管理界面，可直接运行。
+Download the `windows-amd64.zip` package from [Releases](https://github.com/Mag1cFall/AIStudio2API/releases), extract it, and run `start.bat`. The package includes the management interface and is ready to run.
 
-从源码启动时：
+To start from source:
 
 ```powershell
 git clone https://github.com/Mag1cFall/AIStudio2API.git
@@ -71,24 +71,24 @@ cd AIStudio2API
 copy .env.example .env
 ```
 
-然后双击运行 `start.bat`。Windows PowerShell 也可以直接执行：
+Then double-click `start.bat`. You can also run it from PowerShell:
 
 ```powershell
 .\start.bat
 ```
 
-已有 `aistudio2api.exe` 时脚本立即运行；源码目录缺少可执行文件时，脚本自动安装前端依赖并构建前端与 Go 程序。
+The script runs an existing `aistudio2api.exe` immediately. In a source checkout without the executable, it installs frontend dependencies and builds the frontend and Go program.
 
-首次启动会自动下载当前平台的 Camoufox 到 `runtime/camoufox/`。也可以通过环境变量 `CAMOUFOX_PATH` 指定已有可执行文件。
+The first launch downloads Camoufox for the current platform to `runtime/camoufox/`. Set `CAMOUFOX_PATH` to use an existing executable instead.
 
-### 方式二：Linux 与 macOS 源码构建
+### Method 2: Linux and macOS Source Build
 
-#### 1. 安装依赖
+#### 1. Install Dependencies
 
-- Go 1.25.0 或更高版本
-- Node.js 22.13+ 或 24+，以及配套 npm
+- Go 1.25.0 or later
+- Node.js 22.13+ or 24+, with its bundled npm
 
-#### 2. 克隆项目
+#### 2. Clone the Project
 
 ```bash
 git clone https://github.com/Mag1cFall/AIStudio2API.git
@@ -96,7 +96,7 @@ cd AIStudio2API
 cp .env.example .env
 ```
 
-#### 3. 构建并运行
+#### 3. Build and Run
 
 ```bash
 cd web
@@ -108,79 +108,79 @@ chmod +x ./aistudio2api
 ./aistudio2api
 ```
 
-Linux 与 macOS 首次运行同样会自动准备对应平台的 Camoufox。
+The first Linux or macOS launch also prepares the matching Camoufox build automatically.
 
-## 快速开始
+## Quick Start
 
-### 首次使用（需要认证）
+### First-Time Use (Authentication Required)
 
-1. **准备首个账户**:
+1. **Prepare the first account**:
 
-   Windows 可以导入本机 Chrome 账户：
+   Windows can import a local Chrome account:
 
    ```powershell
    start.bat setup
    ```
 
-   Linux 与 macOS 使用隔离 Camoufox 登录：
+   Linux and macOS use an isolated Camoufox login:
 
    ```bash
    ./aistudio2api setup --login
    ```
 
-   登录完成后会从 AI Studio 页面读取 Google 邮箱，并为账户授权 Google Drive。账户保存到 `.env` 中 `AISTUDIO_AUTH_STATES` 指向的目录；语言和时区默认读取当前电脑设置，也可以通过 `--locale`、`--timezone` 指定。
+   The Google email is read from AI Studio after login, and Google Drive is authorized for the account. The account is saved under the path configured by `AISTUDIO_AUTH_STATES` in `.env`. Locale and timezone default to the current computer and can be set with `--locale` and `--timezone`.
 
-2. **启动图形界面**:
-   - Windows 双击 `start.bat`
-   - Linux 与 macOS 运行 `./aistudio2api`
-   - 浏览器自动打开 `http://127.0.0.1:2048`
-   - 页面初始状态为 `STOPPED`，默认显示“日志”页面
+2. **Start the management UI**:
+   - Double-click `start.bat` on Windows
+   - Run `./aistudio2api` on Linux or macOS
+   - The browser opens `http://127.0.0.1:2048`
+   - The initial state is `STOPPED`, with Logs open by default
 
-3. **添加其他账户**:
-   - 打开“账户”页面
-   - “Chrome 批量导入”可多选本机 Chrome 账户
-   - “浏览器登录”会打开独立 Camoufox 窗口，登录完成后自动识别邮箱、授权 Google Drive 并保存；Google 要求验证身份时，在该窗口或手机上确认
+3. **Add another account**:
+   - Open Accounts
+   - "Import Chrome accounts" supports selecting multiple local Chrome accounts
+   - "Browser login" opens an isolated Camoufox window, detects the email after login, authorizes Google Drive, and saves the account; when Google asks to verify your identity, confirm it in that window or on your phone
 
-4. **启动 API**:
-   - 点击“启动服务”启动数据面
-   - 状态依次显示 `LAUNCHING` 和 `RUNNING`；`LAUNCHING` 期间可以点击“停止服务”取消启动
-   - 在“日志”页面确认账户、模型和请求状态
-   - API 默认监听 `http://127.0.0.1:2048`
+4. **Start the API**:
+   - Click "Start service" to start the data plane
+   - The state advances through `LAUNCHING` to `RUNNING`; "Stop service" cancels an in-progress launch
+   - Use Logs to confirm account, model, and request status
+   - The API listens on `http://127.0.0.1:2048` by default
 
-账户操作随状态显示：
+Account actions depend on state:
 
-| 账户状态 | 可用操作 |
+| Account state | Available actions |
 | --- | --- |
-| `ready` | 编辑、停用、验证、删除 |
-| `disabled` | 编辑、启用、删除 |
-| `auth_required` | 编辑、停用、重新登录、验证、删除 |
+| `ready` | Edit, disable, verify, delete |
+| `disabled` | Edit, enable, delete |
+| `auth_required` | Edit, disable, log in again, verify, delete |
 
-“重新登录”只在账户状态为 `auth_required` 时显示。
+"Log in again" appears only when the account state is `auth_required`.
 
-### 日常使用（已有认证）
+### Daily Use (With Existing Authentication)
 
-1. Windows 双击 `start.bat`；Linux 与 macOS 运行 `./aistudio2api`
-2. 点击“启动服务”启用 API
-3. 点击“停止服务”会取消正在进行的启动或活动请求并关闭 WAA Worker，管理页面与日志保持可用
-4. 再次点击“启动服务”即可恢复 API
+1. Double-click `start.bat` on Windows; run `./aistudio2api` on Linux or macOS
+2. Click "Start service" to enable the APIs
+3. "Stop service" cancels an in-progress launch or active requests and closes WAA workers while the management UI and Logs remain available
+4. Click "Start service" again to resume the APIs
 
-停止后再次启动会读取最新 `.env` 生成服务配置；管理页面地址和 `PROXY_API_KEY` 在管理进程重启后生效。
+Starting again loads the latest data-plane settings from `.env`. Changes to `LISTEN_ADDR` or `PROXY_API_KEY` require restarting the management process.
 
-在启动窗口按 `Ctrl+C` 或关闭窗口会退出整个管理进程。关闭浏览器标签页不会停止管理进程。
+Press `Ctrl+C` in the launch window or close that window to exit the manager. Closing the browser tab does not stop the manager.
 
-### 快速启动
+### Quick Start
 
-`start.bat`：启动管理进程并自动打开网页。
+`start.bat`: Starts the manager and opens the web UI.
 
-`start.bat -open-ui=false`：启动管理进程但不自动打开网页。
+`start.bat -open-ui=false`: Starts the manager without opening the web UI.
 
-`start.bat setup`：扫描本机 Chrome 账户；也可使用 `--email` 或 `--profile` 选择明确的 Chrome 账户。隔离登录使用 `start.bat setup --login`；文件导入使用 `start.bat setup --storage-state <file>`。
+`start.bat setup`: Scans local Chrome accounts. Use `--email` or `--profile` to select a Chrome account. Run `start.bat setup --login` for an isolated login, or `start.bat setup --storage-state <file>` to import a file.
 
-## API 使用
+## API Usage
 
-### OpenAI 兼容接口
+### OpenAI Compatible Interface
 
-服务启动后，可以直接使用 OpenAI Chat Completions：
+After starting the service, call OpenAI Chat Completions directly:
 
 ```bash
 curl http://127.0.0.1:2048/v1/chat/completions \
@@ -193,25 +193,25 @@ curl http://127.0.0.1:2048/v1/chat/completions \
   }'
 ```
 
-### 客户端配置示例
+### Client Configuration Example
 
-| 协议 | Base URL | API key |
+| Protocol | Base URL | API key |
 | --- | --- | --- |
-| OpenAI Chat / Responses | `http://127.0.0.1:2048/v1` | `.env` 中的 `PROXY_API_KEY` |
-| Anthropic Messages | `http://127.0.0.1:2048` | `.env` 中的 `PROXY_API_KEY` |
-| Gemini | `http://127.0.0.1:2048` | `.env` 中的 `PROXY_API_KEY` |
+| OpenAI Chat / Responses | `http://127.0.0.1:2048/v1` | `PROXY_API_KEY` from `.env` |
+| Anthropic Messages | `http://127.0.0.1:2048` | `PROXY_API_KEY` from `.env` |
+| Gemini | `http://127.0.0.1:2048` | `PROXY_API_KEY` from `.env` |
 
-模型名称从 `GET /v1/models` 或 `GET /v1beta/models` 读取。`PROXY_API_KEY` 为空时，浏览器中只有本机页面可以直接调用接口；网页版客户端和部分桌面客户端需要设置 `PROXY_API_KEY`。
+Read model names from `GET /v1/models` or `GET /v1beta/models`. When `PROXY_API_KEY` is empty, only pages on this machine can call the API from a browser; web clients and some desktop clients need `PROXY_API_KEY` set.
 
-以 Cherry Studio 为例：
+For Cherry Studio:
 
-1. 打开 Cherry Studio 设置
-2. 新增 OpenAI 兼容提供商
-3. API 主机地址填写 `http://127.0.0.1:2048/v1`
-4. API 密钥填写 `.env` 中的 `PROXY_API_KEY`
-5. 从 `/v1/models` 获取模型，或手动添加 `gemini-3.6-flash`、`gemini-3.7-flash`
+1. Open Cherry Studio settings
+2. Add an OpenAI-compatible provider
+3. Set the API host to `http://127.0.0.1:2048/v1`
+4. Set the API key to `PROXY_API_KEY` from `.env`
+5. Load models from `/v1/models`, or add `gemini-3.6-flash` and `gemini-3.7-flash` manually
 
-[Claude Code](https://github.com/anthropics/claude-code) 使用 Anthropic 接口，子 agent 按 opus、sonnet、haiku 档位选择模型，以下变量把它们映射到 AI Studio 模型；WebSearch 由 Google Search 执行：
+[Claude Code](https://github.com/anthropics/claude-code) uses the Anthropic endpoint. Subagents pick models by the opus, sonnet, and haiku tiers; the variables below map them to AI Studio models. WebSearch runs on Google Search:
 
 ```powershell
 $env:ANTHROPIC_BASE_URL = "http://127.0.0.1:2048"
@@ -222,7 +222,7 @@ $env:ANTHROPIC_DEFAULT_SONNET_MODEL = "gemini-3.8-flash"
 $env:ANTHROPIC_DEFAULT_HAIKU_MODEL = "gemini-3.5-flash-lite"
 ```
 
-[Codex](https://github.com/openai/codex) 使用 Responses 接口，在 `~/.codex/config.toml` 中添加 provider，并把 `PROXY_API_KEY` 写入 `AISTUDIO2API_KEY` 环境变量；Codex 的 `web_search` 工具由 Google Search 执行：
+[Codex](https://github.com/openai/codex) uses the Responses endpoint. Add a provider to `~/.codex/config.toml` and put `PROXY_API_KEY` in the `AISTUDIO2API_KEY` environment variable. Codex's `web_search` tool runs on Google Search:
 
 ```toml
 model = "gemini-3.8-flash"
@@ -235,7 +235,7 @@ env_key = "AISTUDIO2API_KEY"
 wire_api = "responses"
 ```
 
-[omp](https://github.com/can1357/oh-my-pi) 的 `web_search` 工具按自身的搜索来源顺序执行。设置 `GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:2048` 与 `GEMINI_API_KEY=<PROXY_API_KEY>`，并在 omp 配置中优先使用 Gemini 来源：
+[omp](https://github.com/can1357/oh-my-pi) runs its `web_search` tool through its own provider order. Set `GOOGLE_GEMINI_BASE_URL=http://127.0.0.1:2048` and `GEMINI_API_KEY=<PROXY_API_KEY>`, and put the Gemini provider first in the omp config:
 
 ```yaml
 providers:
@@ -244,33 +244,33 @@ providers:
   webSearchGeminiModel: gemini-3.8-flash
 ```
 
-主要端点：
+Main endpoints:
 
-| 能力 | 端点 |
+| Capability | Endpoint |
 | --- | --- |
-| 模型 | `GET /v1/models`、`GET /v1beta/models` |
+| Models | `GET /v1/models`, `GET /v1beta/models` |
 | OpenAI Chat | `POST /v1/chat/completions` |
 | OpenAI Responses | `POST /v1/responses` |
-| Files | `POST /v1/files`、`GET /v1/files/{id}`、`GET /v1/files/{id}/content`、`DELETE /v1/files/{id}` |
-| Anthropic | `POST /v1/messages`、`POST /v1/messages/count_tokens` |
-| Gemini | `POST /v1beta/models/{model}:generateContent`、`:streamGenerateContent`、`:countTokens` |
-| 图片 | `POST /v1/images/generations` |
-| 语音 | `POST /v1/audio/speech` |
-| 转录 | `POST /v1/audio/transcriptions` |
-| 音乐 | Gemini `generateContent` + `responseModalities: ["AUDIO"]` |
-| 视频 | `POST /v1/videos`、`GET /v1/videos/{id}`、`GET /v1/videos/{id}/content` |
-| Gemini 视频 | `POST /v1beta/models/{model}:predictLongRunning`、`GET /v1beta/operations/{id}` |
-| Live（含实时翻译与实时转录）/ Robotics | `GET /v1/live`、`GET /v1/robotics/stream` |
+| Files | `POST /v1/files`, `GET /v1/files/{id}`, `GET /v1/files/{id}/content`, `DELETE /v1/files/{id}` |
+| Anthropic | `POST /v1/messages`, `POST /v1/messages/count_tokens` |
+| Gemini | `POST /v1beta/models/{model}:generateContent`, `:streamGenerateContent`, `:countTokens` |
+| Images | `POST /v1/images/generations` |
+| Speech | `POST /v1/audio/speech` |
+| Transcription | `POST /v1/audio/transcriptions` |
+| Music | Gemini `generateContent` with `responseModalities: ["AUDIO"]` |
+| Video | `POST /v1/videos`, `GET /v1/videos/{id}`, `GET /v1/videos/{id}/content` |
+| Gemini Video | `POST /v1beta/models/{model}:predictLongRunning`, `GET /v1beta/operations/{id}` |
+| Live (including live translation and live transcription) / Robotics | `GET /v1/live`, `GET /v1/robotics/stream` |
 
-四套生成接口均可按各自协议字段启用 Search、Image Search、URL Context、Code Execution 和 Maps。Files、Transcribe、Live、Robotics 的请求与事件格式见 [Google AI Studio 协议规范](docs/protocol.md)。
+All four generation APIs can enable Search, Image Search, URL Context, Code Execution, and Maps through their protocol fields. Request and event formats for Files, Transcribe, Live, and Robotics are documented in the [Google AI Studio protocol specification](docs/protocol.md).
 
-生成请求中的内联附件会优先上传为临时 Drive 文件，随请求结束清理；账户未授予 Drive 权限时保持内联数据发送。图片、音频、视频、PDF 等输入仍需所选模型支持。重复使用的附件可通过 Files 接口上传一次并复用文件 ID。
+Inline attachments in generation requests are preferentially uploaded as temporary Drive files and cleaned up when the request ends. If the account has not granted Drive access, the original inline data is sent instead. Images, audio, video, PDFs, and other inputs must be supported by the selected model. Upload reusable attachments once through the Files API and reuse their file IDs.
 
-Gemini 附件与视频图片输入支持 `inlineData` / `inline_data`、`fileData` / `file_data`、`mimeType` / `mime_type` 和 `fileUri` / `file_uri`。媒体 Base64 数据支持标准与 URL-safe 字母表、带填充与无填充形式，以及 `data:<MIME>;base64,` 前缀。OpenAI 助手历史中的 Markdown 图片同样支持 URL-safe Base64 和 CR/LF 换行。内联 GIF 和视频表单上传的 GIF 按首帧静态图片转换为 PNG，保留逻辑画布、帧位置与透明背景。
+Gemini attachments and video image inputs accept `inlineData` / `inline_data`, `fileData` / `file_data`, `mimeType` / `mime_type`, and `fileUri` / `file_uri`. Base64 media data supports standard and URL-safe alphabets, padded and unpadded forms, and the `data:<MIME>;base64,` prefix. Markdown images in OpenAI assistant history also support URL-safe Base64 and CR/LF line breaks. Inline GIFs and GIFs uploaded through video multipart requests are converted to PNG using the first frame, preserving the logical canvas, frame position, and transparency.
 
-### TTS 语音生成
+### TTS Speech Generation
 
-TalkifyTTS 与新版 Google Gen AI SDK 可连接 `http://127.0.0.1:2048/v1beta/interactions`，稳定版入口为 `/v1/interactions`。请求使用 `x-goog-api-key`，支持 `gemini-3.8-flash-tts` 与 `gemini-3.8-flash-lite-tts`：
+TalkifyTTS and the Google Gen AI SDK can connect to `http://127.0.0.1:2048/v1beta/interactions`; the stable endpoint is `/v1/interactions`. Authenticate with `x-goog-api-key`. Both `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts` support single-speaker and multi-speaker synthesis.
 
 ```python
 from google import genai
@@ -288,7 +288,7 @@ for event in stream:
         print(event.delta.data)
 ```
 
-流式音频默认为 Base64 编码的 24 kHz、16-bit 小端、单声道 PCM；非流式默认为完整 WAV，通过 `interaction.output_audio.data` 读取。`response_format.mime_type` 可显式选择 `audio/l16` 或 `audio/wav`。风格与多说话人输入见 [Interactions 协议](docs/protocol.md#gemini-interactions)。
+Streaming defaults to Base64-encoded 24 kHz, 16-bit little-endian mono PCM. Non-streaming defaults to a complete WAV file, available through `interaction.output_audio.data`. Set `response_format.mime_type` to `audio/l16` or `audio/wav` to select the format. See the [Interactions protocol](docs/protocol.md#gemini-interactions) for style annotations and multi-speaker input.
 
 ```bash
 curl http://127.0.0.1:2048/v1/audio/speech \
@@ -303,7 +303,7 @@ curl http://127.0.0.1:2048/v1/audio/speech \
   --output speech.wav
 ```
 
-多说话人语音可以通过 Gemini `generateContent` 的 `multiSpeakerVoiceConfig` 配置。
+Multi-speaker speech is available through Gemini `generateContent` with `multiSpeakerVoiceConfig`.
 
 ```bash
 curl http://127.0.0.1:2048/v1beta/models/gemini-2.5-flash-preview-tts:generateContent \
@@ -325,9 +325,9 @@ curl http://127.0.0.1:2048/v1beta/models/gemini-2.5-flash-preview-tts:generateCo
   }' --output speech.json
 ```
 
-可用语音由实时模型目录中的 `capability_options.voices` 返回。`gemini-3.8-flash-tts` 等带 `speech_metadata` 能力的模型同样接受上面的 `说话人: 台词` 写法，也可以为每个文本 part 设置 `speechMetadata.speaker` 与 `speechMetadata.style`，并用 `multiSpeakerVoiceConfig.mode` 选择 `VERBATIM` 或 `CONVERSATIONAL`；OpenAI `instructions` 在这些模型上作为语音风格。
+Available voices are returned by `capability_options.voices` in the live model catalog. Models with the `speech_metadata` capability, such as `gemini-3.8-flash-tts`, accept the same `Speaker: line` script, and each text part can also set `speechMetadata.speaker` and `speechMetadata.style`, with `multiSpeakerVoiceConfig.mode` selecting `VERBATIM` or `CONVERSATIONAL`; OpenAI `instructions` become the speech style on these models.
 
-### 图片生成 (Nano Banana)
+### Image Generation (Nano Banana)
 
 ```bash
 curl http://127.0.0.1:2048/v1/images/generations \
@@ -341,7 +341,7 @@ curl http://127.0.0.1:2048/v1/images/generations \
   }'
 ```
 
-### 视频生成 (Veo)
+### Video Generation (Veo)
 
 ```bash
 curl http://127.0.0.1:2048/v1/videos \
@@ -353,11 +353,11 @@ curl http://127.0.0.1:2048/v1/videos \
   }'
 ```
 
-创建操作后通过 `GET /v1/videos/{id}` 查询状态，通过 `GET /v1/videos/{id}/content` 下载结果。
+After creating the operation, poll `GET /v1/videos/{id}` and download the result from `GET /v1/videos/{id}/content`.
 
-## 模型
+## Models
 
-模型目录会随 AI Studio 更新，客户端从 `/v1/models` 或 `/v1beta/models` 读取当前值。下表保留目录结构示例，模型 ID、限制和方法以运行时结果为准：
+The model catalog follows AI Studio updates; clients read the current values from `/v1/models` or `/v1beta/models`. The table below is a catalog-shape example; runtime results are authoritative for model IDs, limits, and methods:
 
 | Model ID | Display name | Input | Output | Methods |
 | --- | --- | ---: | ---: | --- |
@@ -393,172 +393,172 @@ curl http://127.0.0.1:2048/v1/videos \
 | `veo-3.1-generate-preview` | Veo 3.1 | 480 | 8192 | `predictLongRunning` |
 | `veo-3.1-lite-generate-preview` | Veo 3.1 lite | 480 | 8192 | `predictLongRunning` |
 
-公开端点实现标准 `generateContent`、`countTokens` 和 `predictLongRunning`。`/v1/models` 与 `/v1beta/models` 原样汇总各账户实时上游目录；调度按目录明确提供的模型 ID、方法、能力字段和账户当前运行状态选择账户。
+Public endpoints implement `generateContent`, `countTokens`, and `predictLongRunning`. `/v1/models` and `/v1beta/models` preserve the live upstream catalogs across accounts; scheduling uses explicit model ID, method, and capability fields plus current account runtime state.
 
-## 项目架构
+## Project Architecture
 
 ```text
 AIStudio2API/
-├── cmd/aistudio2api/        # 薄入口
-├── internal/app/            # 命令、管理监听、生成服务生命周期与调度
-├── internal/setup/          # 账户导入和独立登录 CLI
-├── internal/aistudio/       # AI Studio 协议、认证、模型与媒体
-├── internal/api/            # OpenAI、Responses、Anthropic 与 Gemini 适配
-├── internal/chromeauth/     # Windows Chrome 与 DBSC 导入
-├── internal/camoufoxnative/ # Camoufox BiDi、登录与 WAA Worker
-├── internal/webui/          # 内嵌前端产物
-├── web/                     # Vue 3 + TypeScript 管理页面
-├── docs/                    # 开发文档与协议规范
-└── start.bat                # Windows 一键启动入口
+├── cmd/aistudio2api/        # Thin entry point
+├── internal/app/            # Commands, management listener, data-plane lifecycle, and scheduling
+├── internal/setup/          # Account import and isolated-login CLI
+├── internal/aistudio/       # AI Studio protocol, authentication, models, and media
+├── internal/api/            # OpenAI, Responses, Anthropic, and Gemini adapters
+├── internal/chromeauth/     # Windows Chrome and DBSC import
+├── internal/camoufoxnative/ # Camoufox BiDi, login, and WAA workers
+├── internal/webui/          # Embedded frontend build
+├── web/                     # Vue 3 and TypeScript management UI
+├── docs/                    # Development guide and protocol specification
+└── start.bat                # Windows one-click launcher
 ```
 
-## 配置说明
+## Configuration
 
-### 环境变量配置
+### Environment Variables
 
-复制并编辑环境配置文件：
+Copy and edit the environment file:
 
 ```bash
 cp .env.example .env
 ```
 
-| 变量 | 默认值 | 作用 |
+| Variable | Default | Purpose |
 | --- | --- | --- |
-| `AISTUDIO_AUTH_STATES` | `auth` | 账户文件、目录或多个逗号分隔路径 |
-| `LISTEN_ADDR` | `127.0.0.1:2048` | 管理页面与 API 监听地址 |
-| `PROXY_API_KEY` | 空 | 公开 API key |
-| `ADMIN_AUTH_ENABLED` | `false` | 管理控制台账号密码登录开关 |
-| `ADMIN_USERNAME` | `admin` | 管理员账号 |
-| `ADMIN_PASSWORD` | 空 | 管理员密码，开启登录时必填 |
-| `PROXY` | 空 | Chrome 导入、登录和账户默认使用的 HTTP、HTTPS 或 SOCKS5 代理 |
-| `INIT_TIMEOUT` | `2m` | 单账户 WAA 初始化超时 |
-| `REQUEST_TIMEOUT` | `5m` | 单次请求最大执行时间 |
-| `WARM_WORKER_LIMIT` | `5` | 常驻预热账户数 |
-| `MAX_ACTIVE_WORKERS` | `10` | 高峰期最多同时运行的 Worker 数 |
-| `WARM_STARTUP_CONCURRENCY` | `2` | 同时初始化的预热账户数 |
-| `PER_ACCOUNT_CONCURRENCY` | `2` | 单账号同时执行的请求数 |
-| `ROUTING_STRATEGY` | `round-robin` | `round-robin` 轮询；`fill-first` 账号粘性优先 |
-| `UPSTREAM_CHANNELS` | `playground,build` | 生成请求使用的上游通道，可只保留其一 |
-| `BUILD_NATIVE_NONSTREAM` | `true` | 非流式请求优先使用 Build 原生单次调用；不可用时回退流式并记录原因 |
-| `WAA_BACKEND` | `camoufox` | `camoufox` 在 Camoufox 页面运行 WAA；`go` 在服务进程内运行 WAA，不下载也不启动 Camoufox |
-| `TEMPORARY_CHAT` | `false` | WAA 预热页是否使用临时对话 |
-| `HEADLESS` | `true` | Camoufox 是否启用无头模式（`true` 后台静默；`false` 显示浏览器窗口） |
-| `CAMOUFOX_PATH` | 空 | 自定义 Camoufox 浏览器可执行文件路径（可选） |
-服务启动时会载入 `AISTUDIO_AUTH_STATES` 中的全部账户；`WARM_WORKER_LIMIT` 控制常驻预热规模，`MAX_ACTIVE_WORKERS` 控制峰值 Worker 上限，`WARM_STARTUP_CONCURRENCY` 控制启动预热并发，`PER_ACCOUNT_CONCURRENCY` 控制单账户请求槽位。
+| `AISTUDIO_AUTH_STATES` | `auth` | Account file, directory, or comma-separated paths |
+| `LISTEN_ADDR` | `127.0.0.1:2048` | Management UI and API listen address |
+| `PROXY_API_KEY` | empty | Public API key |
+| `ADMIN_AUTH_ENABLED` | `false` | Enable username/password login for the console |
+| `ADMIN_USERNAME` | `admin` | Administrator username |
+| `ADMIN_PASSWORD` | empty | Administrator password, required when login is enabled |
+| `PROXY` | empty | HTTP, HTTPS, or SOCKS5 proxy used by Chrome import, login, and accounts without an override |
+| `INIT_TIMEOUT` | `2m` | Per-account WAA initialization timeout |
+| `REQUEST_TIMEOUT` | `5m` | Maximum request execution time |
+| `WARM_WORKER_LIMIT` | `5` | Number of resident prewarmed accounts |
+| `MAX_ACTIVE_WORKERS` | `10` | Maximum workers active during peak load |
+| `WARM_STARTUP_CONCURRENCY` | `2` | Accounts initialized concurrently during prewarming |
+| `PER_ACCOUNT_CONCURRENCY` | `2` | Concurrent requests allowed per account |
+| `ROUTING_STRATEGY` | `round-robin` | `round-robin` rotates accounts; `fill-first` reuses the first available account |
+| `UPSTREAM_CHANNELS` | `playground,build` | Upstream channels for generation requests; either one can be used alone |
+| `BUILD_NATIVE_NONSTREAM` | `true` | Prefer native Build unary calls for non-streaming requests; log any fallback to stream collection |
+| `WAA_BACKEND` | `camoufox` | `camoufox` runs WAA in a Camoufox page; `go` runs WAA inside the service process and neither downloads nor starts Camoufox |
+| `TEMPORARY_CHAT` | `false` | Use Temporary Chat for the WAA prewarm page |
+| `HEADLESS` | `true` | Run Camoufox in headless mode (`true` for silent background; `false` to display browser window) |
+| `CAMOUFOX_PATH` | empty | Custom path to Camoufox executable (optional) |
+The service loads every account from `AISTUDIO_AUTH_STATES`. `WARM_WORKER_LIMIT` sets the resident warm pool, `MAX_ACTIVE_WORKERS` caps peak worker count, `WARM_STARTUP_CONCURRENCY` controls concurrent prewarming, and `PER_ACCOUNT_CONCURRENCY` controls request slots per account.
 
-### 端口配置
+### Port Configuration
 
-管理控制台默认通过本机回环地址免密访问。远程管理时设置 `ADMIN_AUTH_ENABLED=true`、管理员账号和密码，重启程序后通过独立 `/login` 页面登录。登录会话有效期为 12 小时，支持退出登录；管理员共享同一个账户池、配置与日志。公开 API 使用独立的 `PROXY_API_KEY`。
+The console allows passwordless loopback access by default. For remote management, set `ADMIN_AUTH_ENABLED=true`, configure the administrator username and password, and restart the process. The separate `/login` page creates a 12-hour session with sign-out support. Administrators share the instance's account pool, configuration, and logs. Public APIs use the separate `PROXY_API_KEY`.
 
-反向代理使用 HTTPS，并保留原始 `Host`、设置 `X-Forwarded-Proto: https`。管理页“服务配置”可调整登录开关及凭据，保存后重启程序生效。
+Use an HTTPS reverse proxy that preserves `Host` and sets `X-Forwarded-Proto: https`. Console login settings can also be saved from the settings page and take effect after restarting the process.
 
-- **管理页面与 API**: 默认端口 `2048`
-- **Camoufox**: 由程序动态分配本机端口
+- **Management UI and APIs**: Default port `2048`
+- **Camoufox**: Local ports are allocated dynamically
 
-## 高级功能
+## Advanced Features
 
-### 代理配置
+### Proxy Configuration
 
-支持通过无认证信息的 HTTP、HTTPS 或 SOCKS5 代理访问 AI Studio：
+HTTP, HTTPS, and SOCKS5 proxies without embedded credentials are supported:
 
-1. 在 `.env` 中设置全局代理 `PROXY`
-2. 在“账户”页面编辑单个账户时可以设置账户专用代理
-3. 账户代理同时用于登录、WAA 与业务请求
+1. Set the global proxy `PROXY` in `.env`
+2. Edit an account to set an account-specific proxy
+3. The account proxy is used for login, WAA, and business requests
 
-### 认证文件管理
+### Authentication File Management
 
-认证文件默认存储在 `auth/` 目录：
+Authentication files are stored in `auth/` by default:
 
-| 路径 | 内容 |
+| Path | Contents |
 | --- | --- |
-| `auth/<Google 邮箱>/account.json` | 账户邮箱、代理、语言、时区和启用状态 |
-| `auth/<Google 邮箱>/storage-state.json` | Google Cookie 与认证续签材料 |
-| `auth/<Google 邮箱>/runtime-state.json` | 权益等级、模型资格、冷却状态与资源所属账户 |
-| `auth/<Google 邮箱>/camoufox-cache/` | 该账户浏览器的网页缓存，服务停止时可删除 |
-| `auth/.leases/<Google 邮箱>.lock` | 同一账户目录的跨进程占用锁 |
-| `[用户缓存]/AIStudio2API/runtime-leases/<Google 邮箱>.lock` | 当前电脑上该邮箱的 WAA Worker 占用锁 |
+| `auth/<Google email>/account.json` | Account email, proxy, locale, timezone, and enabled state |
+| `auth/<Google email>/storage-state.json` | Google cookies and authentication renewal material |
+| `auth/<Google email>/runtime-state.json` | Benefit tier, model eligibility, cooldowns, and resource ownership |
+| `auth/<Google email>/camoufox-cache/` | Web cache of that account's browser; can be deleted while the service is stopped |
+| `auth/.leases/<Google email>.lock` | Cross-process lease for the account directory |
+| `[user cache]/AIStudio2API/runtime-leases/<Google email>.lock` | WAA Worker lease for that email on the current computer |
 
-账户邮箱同时作为目录名、管理页面标识和日志来源，统一使用小写形式。`.leases` 协调账户目录读写，用户缓存中的 runtime lease 保证同一邮箱在当前电脑上只有一个 WAA Worker。
+The lowercase Google email is the account directory, management UI identity, and log source. `.leases` coordinates account-directory access, while the runtime lease in the user cache allows one WAA Worker per email on the current computer.
 
-账户页支持 Chrome 批量导入和隔离 Camoufox 登录。`ready` 账户可以编辑、停用、验证和删除，`auth_required` 账户可以重新登录。
+The Accounts page supports Chrome batch import and isolated Camoufox login. `ready` accounts can be edited, disabled, verified, and deleted; `auth_required` accounts can log in again.
 
-## 详细文档
+## Documentation
 
-- [开发与贡献](docs/development.md)
-- [Google AI Studio 协议规范](docs/protocol.md)
-- [WAA 实现](docs/waa.md)
-- [Build 通道](docs/build.md)
-- [运行日志说明](docs/logging.md)
-- [可复用逆向开发指南](docs/reverse-engineering.md)
+- [Development and contribution](docs/development.md)
+- [Google AI Studio protocol specification](docs/protocol.md)
+- [WAA implementation](docs/waa.md)
+- [Build channel](docs/build.md)
+- [Runtime logging](docs/logging.md)
+- [Reusable reverse-engineering development guide](docs/reverse-engineering.md)
 
-## 重要提示
+## Important Notes
 
-### 关于 Camoufox
+### About Camoufox
 
-本项目使用 [Camoufox](https://camoufox.com/) 浏览器来降低被检测为自动化脚本的风险。Camoufox 基于 Firefox，通过修改底层实现来保持真实的设备指纹。
+This project uses [Camoufox](https://camoufox.com/) to reduce automation detection. Camoufox is based on Firefox and changes lower-level browser behavior to retain a realistic device fingerprint.
 
-Go 负责编码、调度、流式解码与公开协议；受 WAA 保护的 `GenerateContent` 通过账户固定指纹 Camoufox 页面发送，保留原生 Firefox TLS/HTTP2、请求头、Cookie 与页面指纹。
+Go handles encoding, scheduling, streaming decode, and public protocols. WAA-protected `GenerateContent` requests are sent by the account's fingerprinted Camoufox page, preserving the native Firefox TLS/HTTP2 stack, headers, cookies, and page fingerprint.
 
-`WAA_BACKEND=go` 时，WAA 在服务进程内运行，按账户指纹模拟 Firefox 页面环境并以 Firefox 请求头直接发送，运行时不下载也不启动 Camoufox。账户页的浏览器登录仍使用 Camoufox，首次登录时按需准备。
+With `WAA_BACKEND=go`, WAA runs inside the service process, emulates the Firefox page environment from the account fingerprint, and sends requests with Firefox request headers; Camoufox is neither downloaded nor started at runtime. Browser login on the Accounts page still uses Camoufox and prepares it on first login.
 
-### 使用限制
+### Limitations
 
-- **客户端管理历史**: Chat、Anthropic 和 Gemini 请求由客户端提交完整对话上下文
-- **AI Studio 历史**: API 请求不保存到官网历史；`TEMPORARY_CHAT=true` 还会关闭 WAA 预热页的自动保存
-- **Responses 会话**: `previous_response_id` 仅在当前进程内保存，重启后不会保留
-- **认证有效期**: Chrome 导入账户保留 DBSC 续签材料；隔离登录账户失效后在账户页重新登录
+- **Client-Managed History**: Clients submit complete conversation context for Chat, Anthropic, and Gemini requests
+- **AI Studio History**: API requests are not saved to website history; `TEMPORARY_CHAT=true` also disables autosave for the WAA prewarm page
+- **Responses Sessions**: `previous_response_id` is stored only in the current process and is cleared on restart
+- **Authentication Expiry**: Chrome imports retain DBSC renewal material; isolated-login accounts must log in again after authentication expires
 
-## 故障排除
+## Troubleshooting
 
-### Windows 端口被系统保留
+### Windows Port Reserved by System
 
-如果启动时提示 `LISTEN_ADDR` 配置的端口被占用，任务管理器中又找不到占用进程，可能是 Hyper-V、WSL2 或 Docker 的 NAT 服务保留了端口段。
+If startup reports that the port configured by `LISTEN_ADDR` is unavailable while Task Manager shows no owning process, Hyper-V, WSL2, or Docker NAT may have reserved the port range.
 
-以下命令需要在管理员权限的 PowerShell 或 CMD 中运行。
+Run the following commands from an elevated PowerShell or CMD window.
 
-#### 1. 查看被 Windows 保留的端口范围
+#### 1. Inspect Reserved Port Ranges
 
 ```powershell
 netsh interface ipv4 show excludedportrange protocol=tcp
 ```
 
-如果 `2048` 落在输出的 `Start Port` 和 `End Port` 范围内，可以修改 `LISTEN_ADDR`，或重启 WinNAT 服务后再次检查：
+If `2048` falls inside a reserved range, change `LISTEN_ADDR`, or restart WinNAT and inspect the range again:
 
 ```powershell
 net stop winnat
 net start winnat
 ```
 
-端口空闲后，也可以将 `2048` 加入持久保留：
+When the port is free, it can be reserved persistently:
 
 ```powershell
 netsh int ipv4 add excludedportrange protocol=tcp startport=2048 numberofports=1 store=persistent
 ```
 
-常见运行状态：
+Common runtime states:
 
-| 状态 | 处理方法 |
+| State | Resolution |
 | --- | --- |
-| 页面未自动打开 | 手动打开 `.env` 中 `LISTEN_ADDR` 对应的地址 |
-| `service_stopped` | 在管理页面点击“启动服务” |
-| 没有可用账户 | 在账户页新增、启用或重新登录账户 |
-| Camoufox 准备失败 | 检查 GitHub Release 访问，或设置 `CAMOUFOX_PATH` |
-| Linux 预热账户 `exit status 255` | 安装 Camoufox 运行库，见“系统要求”中的 apt 命令 |
+| The page does not open automatically | Open the address configured by `LISTEN_ADDR` in `.env` |
+| `service_stopped` | Click "Start service" in the management UI |
+| No account is available | Add, enable, or log in to an account from Accounts |
+| Camoufox preparation fails | Check access to GitHub Releases or set `CAMOUFOX_PATH` |
+| Linux account warmup `exit status 255` | Install the Camoufox runtime libraries, see the apt command in “System Requirements” |
 
-## 贡献
+## Contributing
 
-欢迎提交 Issue 和 Pull Request！
+Issues and Pull Requests are welcome!
 
-## 开发计划
+## Development Roadmap
 
-- ✅ **TTS 支持**: 已适配 `gemini-2.5-flash/pro-preview-tts` 语音生成模型
-- ✅ **媒体生成**: 已支持 Imagen 3、Veo 2、Nano Banana 图片/视频生成
-- ✅ **文档完善**: 更新并优化 `docs/` 目录下的详细使用文档与 API 规范
-- **一键部署**: 提供 Windows/Linux/macOS 的全自动化安装与启动脚本
-- ✅ **Go 语言重构**: 将核心代理服务迁移至 Go 以提升并发性能与降低资源占用
-- ✅ **多Worker负载均衡**: 支持多 Google 账号轮询池，提高并发限额与稳定性
+- ✅ **TTS Support**: Adapted `gemini-2.5-flash/pro-preview-tts` speech generation models
+- ✅ **Media Generation**: Supports Imagen 3, Veo 2, Nano Banana image/video generation
+- ✅ **Documentation**: Update and optimize documentation in `docs/` directory
+- **One-Click Deployment**: Provide fully automated install and launch scripts for Windows/Linux/macOS
+- ✅ **Go Refactoring**: Migrate core proxy service to Go for improved concurrency and reduced resource usage
+- ✅ **Multi-Worker Load Balancing**: Support multi-Google account rotation pool for higher concurrency limits
 
-### 纯 Go WAA 运行时
+### Pure Go WAA Runtime
 
-- ✅ **纯 Go 后端**: `WAA_BACKEND=go` 在服务进程内执行官方 interpreter 与 program，按账户指纹模拟 Firefox 页面环境，运行时不下载、不启动 Camoufox；账户登录仍使用 Camoufox
-- **Firefox 引擎细节**: 补齐 `Intl` 格式化、正则字面量的全局解析时机与 `RegExp.prototype` 的 Symbol 键顺序
+- ✅ **Pure Go backend**: `WAA_BACKEND=go` runs the official interpreter and program inside the service process, emulating the Firefox page environment from each account fingerprint; it neither downloads nor starts Camoufox at runtime, while account login still uses Camoufox
+- **Firefox engine details**: implement `Intl` formatting, the global resolution timing of regular-expression literals, and the Symbol key order of `RegExp.prototype`
