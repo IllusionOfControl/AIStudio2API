@@ -15,6 +15,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -24,6 +25,18 @@ import (
 	tls_client "github.com/bogdanfinn/tls-client"
 	"github.com/bogdanfinn/tls-client/profiles"
 )
+
+// ErrCredentialsRejected indicates that upstream rejected saved Chrome renewal credentials.
+var ErrCredentialsRejected = errors.New("Chrome OAuth renewal material expired")
+
+// multiloginStatusError preserves the renewal phase and upstream status.
+func multiloginStatusError(phase string, statusCode int, status string) error {
+	err := fmt.Errorf("OAuthMultilogin %s phase failed: HTTP %d status %s", phase, statusCode, status)
+	if status == "INVALID_TOKENS" {
+		return errors.Join(ErrCredentialsRejected, err)
+	}
+	return err
+}
 
 const (
 	multiloginURL     = "https://accounts.google.com/oauth/multilogin?source=ChromiumAccountReconcilorDice&reuseCookies=0"
@@ -83,7 +96,7 @@ func fetchGoogleCookies(ctx context.Context, gaiaID string, token string, wrappe
 	}
 	challenge := findChallenge(first)
 	if first.Status != "RETRY" || challenge == "" {
-		return nil, fmt.Errorf("OAuthMultilogin challenge phase failed: HTTP %d status %s", firstStatus, first.Status)
+		return nil, multiloginStatusError("challenge", firstStatus, first.Status)
 	}
 
 	ephemeralPrivateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
@@ -99,7 +112,7 @@ func fetchGoogleCookies(ctx context.Context, gaiaID string, token string, wrappe
 		return nil, err
 	}
 	if secondStatus != http.StatusOK || second.Status != "OK" {
-		return nil, fmt.Errorf("OAuthMultilogin assertion phase failed: HTTP %d status %s", secondStatus, second.Status)
+		return nil, multiloginStatusError("assertion", secondStatus, second.Status)
 	}
 	if len(second.Directed) == 0 || bytes.Equal(second.Directed, []byte("null")) {
 		return nil, fmt.Errorf("OAuthMultilogin response missing token_binding_directed_response")

@@ -1,10 +1,14 @@
 package camoufoxnative
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"time"
 )
+
+// ErrAuthenticationRequired indicates that an isolated account requires login recovery.
+var ErrAuthenticationRequired = errors.New("isolated login state expired")
 
 // StartupStage represents the startup stage of the Camoufox runtime.
 type StartupStage string
